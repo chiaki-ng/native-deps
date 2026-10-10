@@ -48,11 +48,12 @@ for d in "$POOLDIR"/*/; do
   src_sha=$(jq -r '.sha256' "$info")
   src_file=$(basename "$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")")
   libs=""
-  for a in "$d"/lib/*.a; do
+  for a in "$d"/lib/*.a "$d"/lib/*.dylib; do
     [ -e "$a" ] || continue
+    [ -L "$a" ] && continue # skip unversioned/version symlinks; hash the real file
     libs="$libs<code>$(basename "$a")</code> <code>$(hash_file "$a")</code><br>"
   done
-  [ -n "$libs" ] || libs="<em>no static libraries</em>"
+  [ -n "$libs" ] || libs="<em>no libraries</em>"
   rows="$rows| $name | $version | <code>$src_file</code><br><code>$src_sha</code> | $libs"$'\n'
 done
 [ -n "$rows" ] || die "no built dependencies found in pool '$POOLDIR'"

@@ -1,29 +1,33 @@
-# Seed configuration for a remote-play client: VideoToolbox/AudioToolbox
-# decoders for the stream formats chiaki-ng handles. Align with the flags in
-# chiaki-ng's own ffmpeg build script when they diverge.
+# Mirrors chiaki-native-main Tools/Dependencies/build.py: shared libraries,
+# lean avcodec/avformat/avutil set with VideoToolbox h264/hevc for the
+# remote-play stream. The recipe injects --enable-shared --disable-static
+# via the shared flag and the arch/min-version flags via the toolchain env.
 
 version = "9.0.2"
 url = "https://ffmpeg.org/releases/ffmpeg-{version}.tar.xz"
 sha256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 kind = "configure"
+shared = true
 configure_flags = [
+  "--arch=arm64",
+  "--target-os=darwin",
+  "--disable-autodetect",
+  "--disable-everything",
   "--disable-programs",
   "--disable-doc",
-  "--disable-debug",
-  "--disable-autodetect",
-  "--enable-static",
-  "--disable-shared",
-  "--enable-pthreads",
+  "--disable-avdevice",
+  "--disable-avfilter",
+  "--disable-swresample",
+  "--disable-swscale",
+  "--enable-avcodec",
+  "--enable-avutil",
+  "--enable-avformat",
   "--enable-videotoolbox",
-  "--enable-audiotoolbox",
-  "--disable-everything",
-  "--enable-decoder=h264,hevc,aac,ac3,eac3,flac,mp3,opus,vorbis",
-  "--enable-parser=h264,hevc,aac,ac3,flac,opus,vorbis,mpegaudio",
-  "--enable-demuxer=h264,hevc,aac,ac3,eac3,flac,mp3,ogg,matroska,wav,mpegts,mov",
-  "--enable-protocol=file,tcp,udp",
+  "--enable-decoder=h264,hevc",
+  "--enable-parser=h264,hevc",
   "--enable-hwaccel=h264_videotoolbox,hevc_videotoolbox",
-  "--enable-swresample",
-  "--enable-swscale",
+  "--enable-demuxer=mov,h264,hevc",
+  "--enable-protocol=file",
 ]
 
 # @ARCH@ expands to the target architecture; used when cross-compiling.

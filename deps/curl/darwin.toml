@@ -1,28 +1,31 @@
+# Shared libcurl built with cmake against the pinned openssl, mirroring
+# chiaki-native-main Tools/Dependencies/build.py (which the recipe's
+# CMAKE_PREFIX_PATH points at this pool's openssl).
+
 version = "8.22.0"
 url = "https://curl.se/download/curl-{version}.tar.bz2"
 sha256 = "5d956a6a22b3c279f50c421ee5d3c9e9d660cb6f115dcf881b579e952130549c"
-kind = "configure"
+kind = "cmake"
 depends_on = ["openssl"]
+shared = true
 
-# @POOL@ expands to the per-arch pool directory holding the built deps.
-configure_flags = [
-  "--disable-shared",
-  "--enable-static",
-  "--with-openssl=@POOL@/openssl",
-  "--enable-ipv6",
-  "--without-nghttp2",
-  "--without-ngtcp2",
-  "--without-quiche",
-  "--without-brotli",
-  "--without-zstd",
-  "--without-libidn2",
-  "--without-libpsl",
-  "--without-librtmp",
-  "--without-libssh2",
-  "--without-gssapi",
-  "--disable-ldap",
-  "--disable-ldaps",
-  "--without-ca-bundle",
-  "--without-ca-path",
-  "--without-ca-fallback",
-]
+[cmake_options]
+BUILD_STATIC_LIBS = "OFF"
+BUILD_CURL_EXE = "OFF"
+BUILD_LIBCURL_DOCS = "OFF"
+BUILD_MISC_DOCS = "OFF"
+CURL_USE_OPENSSL = "ON"
+USE_APPLE_SECTRUST = "ON"
+CURL_CA_BUNDLE = "none"
+CURL_CA_PATH = "none"
+CURL_USE_LIBPSL = "OFF"
+CURL_USE_LIBSSH2 = "OFF"
+CURL_USE_LIBSSH = "OFF"
+USE_NGHTTP2 = "OFF"
+USE_NGTCP2 = "OFF"
+USE_LIBIDN2 = "OFF"
+CURL_BROTLI = "OFF"
+CURL_ZSTD = "OFF"
+CURL_ZLIB = "OFF"
+CURL_DISABLE_LDAP = "ON"
+CURL_DISABLE_LDAPS = "ON"

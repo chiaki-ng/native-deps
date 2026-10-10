@@ -1,6 +1,7 @@
-# Cross builds compile a native protoc first, then build only the libraries
-# for the target arch. utf8_range is fetched by CMake FetchContent, so
-# protobuf builds need network access.
+# Mirrors chiaki-native-main Tools/Dependencies/build.py. utf8_range ships
+# in the release tarball's third_party/, so protobuf_LOCAL_DEPENDENCIES_ONLY
+# needs no network. Cross builds compile a native protoc first, then build
+# only the libraries for the target arch.
 
 version = "33.4"
 url = "https://github.com/protocolbuffers/protobuf/releases/download/v{version}/protobuf-{version}.tar.gz"
@@ -9,6 +10,12 @@ kind = "cmake"
 depends_on = ["abseil"]
 
 [cmake_options]
+CMAKE_CXX_STANDARD = "20"
 protobuf_BUILD_TESTS = "OFF"
-protobuf_ABSL_PROVIDER = "package"
+protobuf_BUILD_CONFORMANCE = "OFF"
+protobuf_BUILD_EXAMPLES = "OFF"
+protobuf_INSTALL = "ON"
 protobuf_BUILD_PROTOC_BINARIES = "ON"
+protobuf_BUILD_SHARED_LIBS = "OFF"
+protobuf_WITH_ZLIB = "OFF"
+protobuf_LOCAL_DEPENDENCIES_ONLY = "ON"

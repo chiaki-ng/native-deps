@@ -1,8 +1,14 @@
+# C++20 must be pinned here and in protobuf's pin: an abseil built at its
+# C++14 default lacks the string_view symbols protobuf's C++17+ build
+# references, which surfaces as unresolved absl::* symbols at link time.
+
 version = "20250512.1"
 url = "https://github.com/abseil/abseil-cpp/releases/download/{version}/abseil-cpp-{version}.tar.gz"
 sha256 = "9b7a064305e9fd94d124ffa6cc358592eb42b5da588fb4e07d09254aa40086db"
 kind = "cmake"
 
 [cmake_options]
+CMAKE_CXX_STANDARD = "20"
 ABSL_BUILD_TESTING = "OFF"
 ABSL_PROPAGATE_CXX_STD = "ON"
+ABSL_ENABLE_INSTALL = "ON"
