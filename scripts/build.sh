@@ -25,6 +25,17 @@ need jq "brew install jq"
 need cmake
 need clang
 xcrun -f clang >/dev/null 2>&1 || die "Xcode Command Line Tools not available"
+# The pin: Xcode 26 or newer — the toolchain floor for targeting macOS 26.
+# The macos-26 runner image's default Xcode qualifies; locally whatever
+# xcode-select points at (e.g. Xcode 27 on macOS 27) does too.
+xc_all=$(xcodebuild -version 2>/dev/null || true)
+xc_line=${xc_all%%$'\n'*}
+xc_major=${xc_line#Xcode }
+xc_major=${xc_major%%.*}
+case "$xc_major" in
+  '' | *[!0-9]*) die "cannot parse Xcode version from '${xc_line:-none}'" ;;
+esac
+[ "$xc_major" -ge 26 ] || die "Xcode 26+ required (the macOS 26 toolchain); found: $xc_line"
 
 MIN=$(config_get '.config.deployment_target')
 WORK="$ROOT/out/$ARCH"
@@ -72,8 +83,16 @@ ARCH_LDFLAGS="-arch $ARCH -mmacosx-version-min=$MIN"
 while IFS= read -r name; do
   [ -n "$name" ] || continue
   if [ -f "$POOL/$name/BUILD-INFO" ]; then
-    log "$name ($ARCH): already built, skipping"
-    continue
+    # Built with a different toolchain (e.g. local pool after an Xcode
+    # upgrade)? Rebuild instead of serving the stale entry.
+    current_xc=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    built_xc=$(jq -r '.toolchain' "$POOL/$name/BUILD-INFO")
+    if [ "$built_xc" = "$current_xc" ]; then
+      log "$name ($ARCH): already built, skipping"
+      continue
+    fi
+    log "$name ($ARCH): built with '$built_xc' but toolchain is '$current_xc' — rebuilding"
+    rm -rf "$POOL/$name"
   fi
 
   # Wire up the prefixes of everything this dep links against.
