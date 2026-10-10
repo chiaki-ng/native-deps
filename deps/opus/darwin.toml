@@ -1,0 +1,9 @@
+version = "1.6.1"
+url = "https://downloads.xiph.org/releases/opus/opus-{version}.tar.gz"
+sha256 = "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1"
+kind = "cmake"
+
+[cmake_options]
+OPUS_BUILD_PROGRAMS = "OFF"
+OPUS_BUILD_TESTING = "OFF"
+BUILD_TESTING = "OFF"

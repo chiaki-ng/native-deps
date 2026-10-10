@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Publish one rolling release (`sources`) holding, for every pinned dep:
 #   - the downloaded, SHA-verified upstream source archive
-#   - the compiled static libraries as individual assets:
-#       <name>-<version>-darwin-<arch>-<lib>.a
-#   - the per-architecture prefix tarballs from the assemble jobs
+#   - the per-dependency build archive from the assemble jobs:
+#       <name>-<version>-darwin-<arch>.tar.gz  (that dep's include/ + lib/ + bin/)
 #   - SHA256SUMS (every uploaded file) and build.json (resolved versions)
 # The release description is regenerated as a table listing each library,
 # its compiled version and the sha256 sums of its sources and libraries.
 #
 #   scripts/publish-release.sh <dist-dir> <srcs-dir> <pool-dir>
-#   (needs gh with GH_TOKEN set)
+#   (needs gh with GH_TOKEN set; the pool is used for the description table)
 
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
@@ -19,7 +18,6 @@ DISTDIR=$(cd "$1" && pwd)
 SRCSDIR=$2
 POOLDIR=$3
 mkdir -p "$SRCSDIR"
-UPLOADS=$(mktemp -d)
 shopt -s nullglob
 
 need gh "https://cli.github.com/"
@@ -32,7 +30,14 @@ for name in $(all_dep_names); do
   archives="$archives $(fetch_source "$name" "$SRCSDIR")"
 done
 
-# --- compiled static libraries out of the build pool ---
+# --- per-dependency build archives ---
+tarballs=""
+for f in "$DISTDIR"/*.tar.*; do
+  tarballs="$tarballs $f"
+done
+[ -n "$tarballs" ] || die "no packaged dependency archives found in '$DISTDIR'"
+
+# --- description table: library, compiled version, sha256 sums ---
 rows=""
 for d in "$POOLDIR"/*/; do
   info="$d/BUILD-INFO"
@@ -44,10 +49,8 @@ for d in "$POOLDIR"/*/; do
   src_file=$(basename "$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")")
   libs=""
   for a in "$d"/lib/*.a; do
-    asset="$name-$version-darwin-$arch-$(basename "$a")"
-    cp "$a" "$UPLOADS/$asset"
-    sha=$(hash_file "$UPLOADS/$asset")
-    libs="$libs<code>$(basename "$a")</code><br><code>$sha</code><br>"
+    [ -e "$a" ] || continue
+    libs="$libs<code>$(basename "$a")</code> <code>$(hash_file "$a")</code><br>"
   done
   [ -n "$libs" ] || libs="<em>no static libraries</em>"
   rows="$rows| $name | $version | <code>$src_file</code><br><code>$src_sha</code> | $libs"$'\n'
@@ -57,24 +60,22 @@ done
 # --- SHA256SUMS over every file being uploaded ---
 sums="$DISTDIR/SHA256SUMS"
 : >"$sums"
-upload_args=""
-for f in $archives "$DISTDIR"/*.tar.zst "$UPLOADS"/*; do
-  [ -f "$f" ] || continue
+for f in $archives $tarballs; do
   printf '%s  %s\n' "$(hash_file "$f")" "$(basename "$f")" >>"$sums"
-  upload_args="$upload_args $f"
 done
-upload_args="$upload_args $sums"
 
 # --- release description ---
 notes=$(mktemp)
 {
-  echo "Pinned dependencies built from source for darwin ($(uname -m) runner, minimum macOS $(config_get ".config.$PLATFORM.deployment_target"))."
+  echo "Pinned dependencies built from source for darwin ($(uname -m) runner, minimum macOS $(config_get '.config.deployment_target'))."
+  echo
+  echo "Each library ships as \`<name>-<version>-darwin-<arch>.tar.gz\` (its \`include/\` + \`lib/\` + \`bin/\`), next to its verified upstream source archive."
   echo
   echo "| Library | Compiled version | Source archive · sha256 | Built static libraries · sha256 |"
   echo "| --- | --- | --- | --- |"
   printf '%s' "$rows"
   echo
-  echo "Prefix tarballs (headers + libraries + tools, one per architecture) and per-library \`.a\` assets are attached; verify any of them against \`SHA256SUMS\`. Machine-readable build metadata (resolved versions, toolchain, hashes) is in \`build.json\`."
+  echo "Verify any download against \`SHA256SUMS\`; machine-readable build metadata (resolved versions, toolchain) is in \`build.json\`."
 } >"$notes"
 
 log "creating sources release if missing"
@@ -83,5 +84,5 @@ gh release view sources >/dev/null 2>&1 \
 gh release edit sources --title "Pinned dependencies: sources and darwin builds" --notes-file "$notes"
 
 # shellcheck disable=SC2086
-gh release upload sources $upload_args "$DISTDIR/build.json" --clobber
-log "sources release updated with archives, static libraries and tarballs"
+gh release upload sources $archives $tarballs "$sums" "$DISTDIR/build.json" --clobber
+log "sources release updated with archives and per-dependency builds"

@@ -26,7 +26,7 @@ need cmake
 need clang
 xcrun -f clang >/dev/null 2>&1 || die "Xcode Command Line Tools not available"
 
-MIN=$(config_get ".config.$PLATFORM.deployment_target")
+MIN=$(config_get '.config.deployment_target')
 WORK="$ROOT/out/$ARCH"
 POOL="$WORK/pool"
 mkdir -p "$POOL" "$WORK/srcs" "$WORK/build"
@@ -40,7 +40,7 @@ while :; do
   next=""
   for n in $frontier; do
     [ -n "$n" ] || continue
-    dep_exists "$n" || die "unknown dependency '$n' (no [[$PLATFORM]] entry named '$n' in deps.toml)"
+    dep_exists "$n" || die "unknown dependency '$n' (not in the deps list of config/$PLATFORM.toml)"
     grep -qx -- "$n" "$PLAN_FILE" || printf '%s\n' "$n" >>"$PLAN_FILE"
     for d in $(dep_deps "$n"); do
       grep -qx -- "$d" "$PLAN_FILE" || next="$next $d"

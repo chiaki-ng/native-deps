@@ -1,0 +1,10 @@
+version = "3.4.16"
+url = "https://github.com/libsdl-org/SDL/releases/download/release-{version}/SDL3-{version}.tar.gz"
+sha256 = "7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68"
+kind = "cmake"
+
+[cmake_options]
+SDL_SHARED = "OFF"
+SDL_STATIC = "ON"
+SDL_TESTS = "OFF"
+SDL_TEST_LIBRARY = "OFF"

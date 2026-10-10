@@ -2,38 +2,58 @@
 # Shared helpers for the native-deps build scripts.
 # Kept bash 3.2 compatible so they also run on a stock macOS host.
 #
-# The manifest is deps.toml: one [[<platform>]] table per library per
-# platform. Everything here reads it through a JSON view produced once per
+# Manifest layout:
+#   config/<platform>.toml        deployment target, architectures, and the
+#                                 explicit `deps` list for the platform
+#   deps/<name>/<platform>.toml   per-library pin: version, url, sha256,
+#                                 build kind and flags
+# Everything here reads both through a JSON view produced once per
 # invocation by scripts/toml2json.py (python 3.11+ stdlib), so the rest of
 # the pipeline stays jq-based.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${PLATFORM:-darwin}"
-MANIFEST="${MANIFEST:-$ROOT/deps.toml}"
+CONFIG_FILE="${CONFIG_FILE:-$ROOT/config/$PLATFORM.toml}"
+DEPS_ROOT="${DEPS_ROOT:-$ROOT/deps}"
 
 log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' not found in PATH${2:+ — $2}"; }
 
-# JSON view of the manifest, converted lazily once per shell.
+dep_pin() { printf '%s/%s/%s.toml' "$DEPS_ROOT" "$1" "$PLATFORM"; } # deps/<name>/<platform>.toml
+
+# JSON view of the manifest: {"config": {...}, "deps": {name: {...}}}.
+# Converted lazily, once per shell.
 _manifest_json() {
   if [ -z "${__MANIFEST_JSON:-}" ]; then
     need jq "brew install jq"
     need python3
-    [ -f "$MANIFEST" ] || die "manifest not found at $MANIFEST"
+    [ -f "$CONFIG_FILE" ] || die "platform config not found at $CONFIG_FILE"
     __MANIFEST_JSON=$(mktemp)
-    python3 "$ROOT/scripts/toml2json.py" "$MANIFEST" >"$__MANIFEST_JSON" || die "failed to parse $MANIFEST"
+    {
+      printf '{"config":'
+      python3 "$ROOT/scripts/toml2json.py" "$CONFIG_FILE" || die "failed to parse $CONFIG_FILE"
+      printf ',"deps":{'
+      sep=""
+      for n in $(python3 "$ROOT/scripts/toml2json.py" "$CONFIG_FILE" | jq -r '(.deps // [])[]'); do
+        pin=$(dep_pin "$n")
+        [ -f "$pin" ] || die "config lists '$n' but there is no pin at $pin"
+        printf '%s"%s":' "$sep" "$n"
+        python3 "$ROOT/scripts/toml2json.py" "$pin" | jq -c --arg n "$n" '. + {name: $n}' || die "failed to parse $pin"
+        sep=","
+      done
+      printf '}}'
+    } >"$__MANIFEST_JSON"
   fi
   printf '%s\n' "$__MANIFEST_JSON"
 }
 
-# jq filter over the manifest, e.g. config_get ".config.$PLATFORM.deployment_target"
-config_get() { jq -r "$1" "$(_manifest_json)"; }
+config_get() { jq -r "$1" "$(_manifest_json)"; } # e.g. config_get '.config.deployment_target'
 
-all_dep_names() { jq -r --arg p "$PLATFORM" '.[$p][]?.name' "$(_manifest_json)"; }
+all_dep_names() { jq -r '(.config.deps // [])[]' "$(_manifest_json)"; }
 
 # The dep's JSON object; empty when the name is unknown.
-dep_json() { jq -c --arg p "$PLATFORM" --arg n "$1" '.[$p][]? | select(.name == $n)' "$(_manifest_json)"; }
+dep_json() { jq -c --arg n "$1" '.deps[$n] // empty' "$(_manifest_json)"; }
 dep_exists() { [ -n "$(dep_json "$1")" ]; }
 dep_get() { dep_json "$1" | jq -r "$2"; }
 dep_deps() { dep_json "$1" | jq -r '(.depends_on // [])[]?'; }
@@ -111,7 +131,7 @@ entry_hash() { # entry_hash <name> <memo-file>
   {
     dep_json "$name"
     for d in $(dep_deps "$name"); do entry_hash "$d" "$memo"; done
-    jq -c ".config.$PLATFORM" "$(_manifest_json)"
+    cat "$CONFIG_FILE"
     cat "$ROOT/scripts/common.sh" "$ROOT/scripts/build.sh" "$ROOT/scripts/recipes.sh"
   } | hash_stdin | { read -r h
     printf '%s %s\n' "$name" "$h" >>"$memo"

@@ -1,12 +1,12 @@
 name: verify
 
-# Every PR validates deps.toml and builds the full matrix. Dependencies whose
+# Every PR validates the manifest and builds the full matrix. Dependencies whose
 # pins (including transitive dependencies' pins) did not change hit the CI
 # cache and finish in seconds, so no changed-file detection is needed.
 
 on:
   pull_request:
-    paths: ['deps.toml', 'scripts/**', '.github/**', 'Makefile']
+    paths: ['deps/**', 'config/**', 'scripts/**', '.github/**', 'Makefile']
 
 permissions:
   contents: read

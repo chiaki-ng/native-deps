@@ -1,18 +1,19 @@
 name: build-darwin
 
-# Builds every pinned dependency from source for each architecture in
-# deps.toml and publishes everything to one rolling `sources` release:
+# Builds the dependencies pinned under deps/<name>/darwin.toml (the explicit
+# list lives in config/darwin.toml) and publishes everything to one rolling
+# `sources` release:
 #   - the verified upstream source archives
-#   - the compiled static libraries as individual <name>-<version>-darwin-<arch>-<lib>.a assets
-#   - per-arch prefix tarballs, SHA256SUMS and build.json
+#   - per-dependency build archives: <name>-<version>-darwin-<arch>.tar.gz
+#   - SHA256SUMS and build.json
 # The release description lists each library with its compiled version and
-# sha256 sums. The build matrix is derived from deps.toml by scripts/plan.sh;
-# nothing in this file names individual dependencies.
+# sha256 sums. The build matrix is derived from the platform config by
+# scripts/plan.sh; nothing in this file names individual dependencies.
 
 on:
   push:
     branches: [main]
-    paths: ['deps.toml', 'scripts/**', '.github/**', 'Makefile']
+    paths: ['deps/**', 'config/**', 'scripts/**', '.github/**', 'Makefile']
   workflow_dispatch:
     inputs:
       only:
@@ -46,7 +47,6 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       architectures: ${{ steps.plan.outputs.architectures }}
       revision: ${{ steps.plan.outputs.revision }}
-      universal: ${{ steps.plan.outputs.universal }}
     steps:
       - uses: actions/checkout@v4
       - id: plan
@@ -98,11 +98,10 @@ jobs:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || inputs.publish == true
-    runs-on: macos-26 # lipo for the universal slice; must be an arm64 image
+    runs-on: macos-26
     permissions:
       contents: write
     env:
-      UNIVERSAL: ${{ needs.plan.outputs.universal }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -117,29 +116,18 @@ jobs:
           merge-multiple: true
           path: pool
 
-      - name: Build universal slice
-        if: env.UNIVERSAL == 'true'
-        run: |
-          mkdir -p stage/arm64 stage/x86_64 stage/universal
-          arm=$(ls distfiles | grep -- '-darwin-arm64\.tar\.')
-          x86=$(ls distfiles | grep -- '-darwin-x86_64\.tar\.')
-          tar -xf "distfiles/$arm" -C stage/arm64
-          tar -xf "distfiles/$x86" -C stage/x86_64
-          ./scripts/make-universal.sh stage/arm64/prefix stage/x86_64/prefix stage/universal/prefix
-          rev=$(jq -r '.revision' distfiles/build-arm64.json)
-          tar -C stage/universal --zstd -cf "distfiles/native-deps-$rev-darwin-universal.tar.zst" prefix
-
       - name: Build metadata
         run: |
           rev='${{ needs.plan.outputs.revision }}'
-          files=$(cd distfiles && for f in *.tar.zst; do
+          files=$(cd distfiles && for f in *.tar.*; do
+            [ -f "$f" ] || continue
             printf '{"file":"%s","sha256":"%s"}\n' "$f" "$(shasum -a 256 "$f" | cut -d" " -f1)"
           done | jq -s .)
           jq -s --arg rev "$rev" --argjson files "$files" \
             '{revision: $rev, files: $files,
-              architectures: (map(.arch)),
+              architectures: (map(.arch) | unique),
               deps: (map(.deps) | add | unique_by(.name))}' \
             distfiles/build-*.json >distfiles/build.json
 
-      - name: Publish archives, static libraries and tarballs to the sources release
+      - name: Publish source archives and per-dependency builds to the sources release
         run: ./scripts/publish-release.sh "$PWD/distfiles" "$PWD/srcs" "$PWD/pool"
