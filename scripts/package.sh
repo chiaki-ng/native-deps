@@ -28,7 +28,7 @@ count=0
 for d in "$POOLDIR"/*/; do
   name=$(basename "$d")
   info="$d/BUILD-INFO"
-  [ -f "$info" ] || continue
+  [ -f "$info" ] || die "pool entry '$name' has no BUILD-INFO — malformed artifact?"
   version=$(jq -r '.version' "$info")
 
   rsync -a --exclude BUILD-INFO "${d%/}" "$STAGE/"

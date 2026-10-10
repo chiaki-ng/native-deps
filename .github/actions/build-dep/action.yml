@@ -52,5 +52,10 @@ runs:
     - uses: actions/upload-artifact@v4
       with:
         name: pool-${{ inputs.name }}-${{ inputs.arch }}
-        path: out/${{ inputs.arch }}/pool/${{ inputs.name }}
+        # Upload the pool dir itself: upload-artifact strips the single
+        # directory root, so the artifact keeps its <name>/ subdirectory and
+        # merge-multiple downloads in assemble/publish rebuild pool/<name>/.
+        # Jobs that had to build a dependency inline carry that dep's dir too;
+        # identical pins make the duplicates equivalent.
+        path: out/${{ inputs.arch }}/pool
         if-no-files-found: error
