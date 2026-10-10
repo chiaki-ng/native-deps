@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Publish one rolling release (`sources`) holding, for every pinned dep:
-#   - the downloaded, SHA-verified upstream source archive
-#   - the per-dependency build archive from the assemble jobs:
-#       <name>-<version>-darwin-<arch>.tar.gz  (that dep's include/ + lib/ + bin/)
-#   - SHA256SUMS (every uploaded file) and build.json (resolved versions)
+# Publish one rolling release (`sources`) holding:
+#   - the downloaded, SHA-verified upstream source archive per pinned dep
+#   - one build.tar.gz with every compiled dependency (a directory per
+#     library, plus an internal SHA256SUMS covering every library file)
+#   - build.tar.gz.sha256 (checksum of the tarball) and build.json
 # The release description is regenerated as a table listing each library,
 # its compiled version and the sha256 sums of its sources and libraries.
 #
@@ -30,12 +30,10 @@ for name in $(all_dep_names); do
   archives="$archives $(fetch_source "$name" "$SRCSDIR")"
 done
 
-# --- per-dependency build archives ---
-tarballs=""
-for f in "$DISTDIR"/*.tar.*; do
-  tarballs="$tarballs $f"
-done
-[ -n "$tarballs" ] || die "no packaged dependency archives found in '$DISTDIR'"
+# --- the build archive and its checksum sidecar ---
+build_tarball="$DISTDIR/build.tar.gz"
+[ -f "$build_tarball" ] || die "build.tar.gz not found in '$DISTDIR' — did assemble run?"
+printf '%s  %s\n' "$(hash_file "$build_tarball")" "build.tar.gz" >"$DISTDIR/build.tar.gz.sha256"
 
 # --- description table: library, compiled version, sha256 sums ---
 # The table cell stays compact (file names, or a count for many-library
@@ -73,13 +71,6 @@ for d in "$POOLDIR"/*/; do
 done
 [ -n "$rows" ] || die "no built dependencies found in pool '$POOLDIR'"
 
-# --- SHA256SUMS over every file being uploaded ---
-sums="$DISTDIR/SHA256SUMS"
-: >"$sums"
-for f in $archives $tarballs; do
-  printf '%s  %s\n' "$(hash_file "$f")" "$(basename "$f")" >>"$sums"
-done
-
 # --- build environment details for the notes ---
 runner="local machine"
 [ -n "${ImageOS:-}" ] && runner="GitHub Actions ($ImageOS${ImageVersion:+ image $ImageVersion})"
@@ -110,7 +101,7 @@ notes=$(mktemp)
   echo
   echo "## Libraries"
   echo
-  echo "Each library ships as \`<name>-<version>-darwin-<arch>.tar.gz\` (its \`include/\` + \`lib/\` + \`bin/\`), next to its verified upstream source archive."
+  echo "All compiled dependencies ship as one \`build.tar.gz\` containing a directory per library (\`include/\` + \`lib/\` + \`bin/\` + \`BUILD-INFO\` provenance) and a root \`SHA256SUMS\` covering every library file — verify after extraction with \`sha256sum -c SHA256SUMS\`. The tarball's own checksum is published alongside it as \`build.tar.gz.sha256\`."
   echo
   echo "| Library | Compiled version | Source archive · sha256 | Libraries |"
   echo "| --- | --- | --- | --- |"
@@ -120,7 +111,7 @@ notes=$(mktemp)
   echo
   printf '%s' "$details"
   echo
-  echo "Verify any download against \`SHA256SUMS\`; machine-readable build metadata (resolved versions, per-dependency toolchains) is in \`build.json\`."
+  echo "Source archives match the SHA-256 pins in \`deps/\`; machine-readable build metadata (resolved versions, per-dependency toolchains) is in \`build.json\`."
 } >"$notes"
 
 log "creating sources release if missing"
@@ -129,5 +120,5 @@ gh release view sources >/dev/null 2>&1 \
 gh release edit sources --title "Pinned dependencies: sources and darwin builds" --notes-file "$notes"
 
 # shellcheck disable=SC2086
-gh release upload sources $archives $tarballs "$sums" "$DISTDIR/build.json" --clobber
-log "sources release updated with archives and per-dependency builds"
+gh release upload sources $archives "$build_tarball" "$DISTDIR/build.tar.gz.sha256" "$DISTDIR/build.json" --clobber
+log "sources release updated with archives, the build tarball and checksums"

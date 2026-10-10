@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# Package each built dependency as its own archive.
+# Package all built dependencies as one archive.
 #
 #   scripts/package.sh <arch> <pool-dir> <dist-dir>
 #
-# For every deps/<name>/<platform>.toml in the pool, produces
-#   <dist-dir>/<name>-<version>-darwin-<arch>.tar.gz  (containing <name>/,
-#   i.e. that dependency's include/ + lib/ + bin/)
+# Produces <dist-dir>/build.tar.gz containing:
+#   <name>/…        one directory per dependency (include/ + lib/ + bin/,
+#                   plus its BUILD-INFO provenance marker)
+#   SHA256SUMS      sha256 of every library artifact (*.a, *.dylib; real
+#                   files, symlinks skipped), relative to the archive root,
+#                   so `sha256sum -c SHA256SUMS` works after extraction
 # plus build-<arch>.json describing the build.
+#
+# Note: the fixed name assumes one architecture per publish (the current
+# config); if a second architecture is ever enabled, give this an arch
+# suffix and upload one per architecture.
 
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
@@ -24,22 +31,31 @@ shopt -s nullglob
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
+names=""
 count=0
 for d in "$POOLDIR"/*/; do
   name=$(basename "$d")
   info="$d/BUILD-INFO"
   [ -f "$info" ] || die "pool entry '$name' has no BUILD-INFO — malformed artifact?"
-  version=$(jq -r '.version' "$info")
-
-  rsync -a --exclude BUILD-INFO "${d%/}" "$STAGE/"
+  rsync -a "${d%/}" "$STAGE/"
   rm -rf "$STAGE/$name/share/man" "$STAGE/$name/share/doc"
-
-  tarball="$name-$version-darwin-$ARCH.tar.gz"
-  tar -C "$STAGE" -czf "$DISTDIR/$tarball" "$name"
-  log "packaged $DISTDIR/$tarball"
+  names="$names $name"
   count=$((count + 1))
 done
 [ "$count" -gt 0 ] || die "pool '$POOLDIR' is empty — nothing to package"
+
+# Checksums for every library artifact inside the archive, relative to its root.
+(
+  cd "$STAGE"
+  : >SHA256SUMS
+  find . -type f \( -name '*.a' -o -name '*.dylib' \) | LC_ALL=C sort | while IFS= read -r f; do
+    printf '%s  %s\n' "$(hash_file "$f")" "${f#./}"
+  done >SHA256SUMS
+)
+
+# shellcheck disable=SC2086
+tar -C "$STAGE" -czf "$DISTDIR/build.tar.gz" SHA256SUMS $names
+log "packaged $DISTDIR/build.tar.gz ($count dependencies)"
 
 rev=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unversioned)
 deps_json="[]"

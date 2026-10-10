@@ -6,8 +6,8 @@ name: build-darwin
 # published for a tag that lives on main — then everything goes to one
 # rolling `sources` release:
 #   - the verified upstream source archives
-#   - per-dependency build archives: <name>-<version>-darwin-<arch>.tar.gz
-#   - SHA256SUMS and build.json
+#   - one build.tar.gz with all compiled dependencies and an internal
+#     SHA256SUMS for every library, plus build.tar.gz.sha256 and build.json
 # The release description lists each library with its compiled version and
 # sha256 sums. The build matrix is derived from the platform config by
 # scripts/plan.sh; nothing in this file names individual dependencies.
