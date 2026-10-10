@@ -38,7 +38,11 @@ done
 [ -n "$tarballs" ] || die "no packaged dependency archives found in '$DISTDIR'"
 
 # --- description table: library, compiled version, sha256 sums ---
+# The table cell stays compact (file names, or a count for many-library
+# deps like abseil); the full per-file checksums go into collapsible
+# <details> blocks below the table, which GitHub renders.
 rows=""
+details=""
 for d in "$POOLDIR"/*/; do
   info="$d/BUILD-INFO"
   [ -f "$info" ] || continue
@@ -47,14 +51,25 @@ for d in "$POOLDIR"/*/; do
   arch=$(jq -r '.arch' "$info")
   src_sha=$(jq -r '.sha256' "$info")
   src_file=$(basename "$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")")
-  libs=""
+  names=""
+  sums=""
+  nlibs=0
   for a in "$d"/lib/*.a "$d"/lib/*.dylib; do
     [ -e "$a" ] || continue
     [ -L "$a" ] && continue # skip unversioned/version symlinks; hash the real file
-    libs="$libs<code>$(basename "$a")</code> <code>$(hash_file "$a")</code><br>"
+    nlibs=$((nlibs + 1))
+    if [ "$nlibs" -le 6 ]; then
+      [ -n "$names" ] && names="$names · "
+      names="$names$(basename "$a")"
+    fi
+    sums="$sums$(hash_file "$a")  $(basename "$a")"$'\n'
   done
-  [ -n "$libs" ] || libs="<em>no libraries</em>"
-  rows="$rows| $name | $version | <code>$src_file</code><br><code>$src_sha</code> | $libs"$'\n'
+  [ "$nlibs" -gt 6 ] && names="$nlibs libraries"
+  [ -n "$names" ] || names="<em>none</em>"
+  rows="$rows| $name | $version | <code>$src_file</code><br><code>$src_sha</code> | $names"$'\n'
+  if [ -n "$sums" ]; then
+    details="$details<details><summary><code>$name</code> — $nlibs file(s)</summary>"$'\n\n'"$sums"$'\n'"</details>"$'\n'
+  fi
 done
 [ -n "$rows" ] || die "no built dependencies found in pool '$POOLDIR'"
 
@@ -65,18 +80,47 @@ for f in $archives $tarballs; do
   printf '%s  %s\n' "$(hash_file "$f")" "$(basename "$f")" >>"$sums"
 done
 
+# --- build environment details for the notes ---
+runner="local machine"
+[ -n "${ImageOS:-}" ] && runner="GitHub Actions ($ImageOS${ImageVersion:+ image $ImageVersion})"
+xcode=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+sdk=$(xcrun --show-sdk-version 2>/dev/null)
+clang=$(/usr/bin/clang --version 2>/dev/null | sed -n '1p')
+cmake=$(cmake --version 2>/dev/null | sed -n '1p')
+revision=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unversioned)
+target_archs=$(for i in "$POOLDIR"/*/BUILD-INFO; do jq -r '.arch' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
+
 # --- release description ---
 notes=$(mktemp)
 {
-  echo "Pinned dependencies built from source for darwin ($(uname -m) runner, minimum macOS $(config_get '.config.deployment_target'))."
+  echo "Pinned dependencies built from source, from the deps/ pins at revision \`$revision\`."
+  echo
+  echo "## Build environment"
+  echo
+  echo "| | |"
+  echo "| --- | --- |"
+  echo "| Revision | \`$revision\` |"
+  echo "| Built on | $runner |"
+  echo "| Xcode | $xcode |"
+  echo "| macOS SDK | $sdk |"
+  echo "| Compiler | $clang |"
+  echo "| CMake | $cmake |"
+  echo "| Architectures | $target_archs |"
+  echo "| Minimum macOS | $(config_get '.config.deployment_target') |"
+  echo
+  echo "## Libraries"
   echo
   echo "Each library ships as \`<name>-<version>-darwin-<arch>.tar.gz\` (its \`include/\` + \`lib/\` + \`bin/\`), next to its verified upstream source archive."
   echo
-  echo "| Library | Compiled version | Source archive · sha256 | Built static libraries · sha256 |"
+  echo "| Library | Compiled version | Source archive · sha256 | Libraries |"
   echo "| --- | --- | --- | --- |"
   printf '%s' "$rows"
   echo
-  echo "Verify any download against \`SHA256SUMS\`; machine-readable build metadata (resolved versions, toolchain) is in \`build.json\`."
+  echo "### Per-file checksums"
+  echo
+  printf '%s' "$details"
+  echo
+  echo "Verify any download against \`SHA256SUMS\`; machine-readable build metadata (resolved versions, per-dependency toolchains) is in \`build.json\`."
 } >"$notes"
 
 log "creating sources release if missing"
