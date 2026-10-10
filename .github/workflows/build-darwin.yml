@@ -1,8 +1,10 @@
 name: build-darwin
 
 # Builds the dependencies pinned under deps/<name>/darwin.toml (the explicit
-# list lives in config/darwin.toml) and publishes everything to one rolling
-# `sources` release:
+# list lives in config/darwin.toml). Pushes to main build and package but do
+# not publish. Publishing happens if and only if a GitHub release is
+# published for a tag that lives on main — then everything goes to one
+# rolling `sources` release:
 #   - the verified upstream source archives
 #   - per-dependency build archives: <name>-<version>-darwin-<arch>.tar.gz
 #   - SHA256SUMS and build.json
@@ -14,6 +16,8 @@ on:
   push:
     branches: [main]
     paths: ['deps/**', 'config/**', 'scripts/**', '.github/**', 'Makefile']
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       only:
@@ -25,10 +29,6 @@ on:
         type: choice
         options: [all, arm64, x86_64]
         default: all
-      publish:
-        description: 'Upload tarballs + sources to the releases'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -94,9 +94,11 @@ jobs:
 
   publish:
     needs: [plan, assemble]
+    # iff: a release was published (and it isn't this pipeline's own rolling
+    # `sources` release) for a tag that lives on main — enforced below.
     if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      || inputs.publish == true
+      github.event_name == 'release'
+      && github.event.release.tag_name != 'sources'
     runs-on: macos-26
     permissions:
       contents: write
@@ -104,6 +106,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: Release tag must live on main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::release tag ${{ github.event.release.tag_name }} is not on main; refusing to publish"
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
