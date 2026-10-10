@@ -1,11 +1,13 @@
 name: build-darwin
 
 # Builds every pinned dependency from source for each architecture in
-# deps.toml and publishes:
-#   - the verified source archives -> rolling `sources` release
-#   - per-arch prefix tarballs     -> rolling `builds` release
-# The build matrix is derived from deps.toml by scripts/plan.sh; nothing in
-# this file names individual dependencies.
+# deps.toml and publishes everything to one rolling `sources` release:
+#   - the verified upstream source archives
+#   - the compiled static libraries as individual <name>-<version>-darwin-<arch>-<lib>.a assets
+#   - per-arch prefix tarballs, SHA256SUMS and build.json
+# The release description lists each library with its compiled version and
+# sha256 sums. The build matrix is derived from deps.toml by scripts/plan.sh;
+# nothing in this file names individual dependencies.
 
 on:
   push:
@@ -109,6 +111,11 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: distfiles
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pool-*
+          merge-multiple: true
+          path: pool
 
       - name: Build universal slice
         if: env.UNIVERSAL == 'true'
@@ -122,16 +129,9 @@ jobs:
           rev=$(jq -r '.revision' distfiles/build-arm64.json)
           tar -C stage/universal --zstd -cf "distfiles/native-deps-$rev-darwin-universal.tar.zst" prefix
 
-      - name: Checksums and build metadata
+      - name: Build metadata
         run: |
           rev='${{ needs.plan.outputs.revision }}'
-          (
-            cd distfiles
-            : >SHA256SUMS
-            for f in *.tar.zst; do
-              printf '%s  %s\n' "$(shasum -a 256 "$f" | cut -d" " -f1)" "$f" >>SHA256SUMS
-            done
-          )
           files=$(cd distfiles && for f in *.tar.zst; do
             printf '{"file":"%s","sha256":"%s"}\n' "$f" "$(shasum -a 256 "$f" | cut -d" " -f1)"
           done | jq -s .)
@@ -141,19 +141,5 @@ jobs:
               deps: (map(.deps) | add | unique_by(.name))}' \
             distfiles/build-*.json >distfiles/build.json
 
-      - name: Publish prebuilt tarballs to the builds release
-        run: |
-          notes=$(mktemp)
-          {
-            echo "Prebuilt darwin dependencies, built from the deps.toml pins at revision \`${{ needs.plan.outputs.revision }}\`."
-            echo
-            echo "Toolchain: $(xcodebuild -version | head -1) · minimum macOS: $(jq -r '.config.darwin.deployment_target' <(python3 scripts/toml2json.py deps.toml))"
-            echo
-            echo "See build.json for per-dependency versions and SHA256SUMS to verify downloads."
-          } >"$notes"
-          gh release view builds >/dev/null 2>&1 \
-            || gh release create builds --title "Prebuilt darwin dependencies" --notes-file "$notes"
-          gh release upload builds distfiles/native-deps-*.tar.zst distfiles/SHA256SUMS distfiles/build.json --clobber
-
-      - name: Rebuild the sources release from the pinned upstream URLs
-        run: ./scripts/publish-sources.sh "$PWD/srcs"
+      - name: Publish archives, static libraries and tarballs to the sources release
+        run: ./scripts/publish-release.sh "$PWD/distfiles" "$PWD/srcs" "$PWD/pool"
