@@ -1,0 +1,43 @@
+name: verify
+
+# Every PR validates deps.toml and builds the full matrix. Dependencies whose
+# pins (including transitive dependencies' pins) did not change hit the CI
+# cache and finish in seconds, so no changed-file detection is needed.
+
+on:
+  pull_request:
+    paths: ['deps.toml', 'scripts/**', '.github/**', 'Makefile']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: ./scripts/plan.sh
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-dep
+        with:
+          name: ${{ matrix.name }}
+          arch: ${{ matrix.arch }}
+          image: ${{ matrix.image }}
+          entryhash: ${{ matrix.entryhash }}
+          needs_key: ${{ matrix.needs_key }}

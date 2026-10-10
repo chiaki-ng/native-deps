@@ -1,0 +1,56 @@
+name: build-dep
+description: >
+  Build one pinned dependency for one architecture. Restores the per-dep
+  content-hash cache (plus its first dependency's pool when needed), builds
+  from source if the cache missed, saves the cache and uploads the pool as
+  a workflow artifact.
+inputs:
+  name:
+    description: dependency name ([[darwin]] entry in deps.toml)
+    required: true
+  arch:
+    description: target architecture
+    required: true
+  image:
+    description: runner image label (part of the cache key)
+    required: true
+  entryhash:
+    description: content hash of the dep manifest + its deps + build scripts
+    required: true
+  needs_key:
+    description: cache key of the first dependency (empty when none)
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: out/${{ inputs.arch }}/pool/${{ inputs.name }}
+        key: dep-${{ inputs.name }}-${{ inputs.arch }}-${{ inputs.image }}-${{ inputs.entryhash }}
+
+    - id: depcache
+      if: steps.cache.outputs.cache-hit != 'true' && inputs.needs_key != ''
+      uses: actions/cache/restore@v4
+      with:
+        path: out/${{ inputs.arch }}/pool
+        key: ${{ inputs.needs_key }}
+
+    - name: Build
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: ./scripts/build.sh '${{ inputs.arch }}' '${{ inputs.name }}'
+
+    - name: Save cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: out/${{ inputs.arch }}/pool/${{ inputs.name }}
+        key: dep-${{ inputs.name }}-${{ inputs.arch }}-${{ inputs.image }}-${{ inputs.entryhash }}
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: pool-${{ inputs.name }}-${{ inputs.arch }}
+        path: out/${{ inputs.arch }}/pool/${{ inputs.name }}
+        if-no-files-found: error

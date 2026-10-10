@@ -1,0 +1,164 @@
+# Pinned native dependencies, built from source by .github/workflows/build-darwin.yml.
+#
+# One [[<platform>]] table per library per platform. CI derives the build
+# matrix from these entries — there is no dep list anywhere else to keep in
+# sync. The `{version}` / `{version_us}` placeholders in urls are filled from
+# the entry's version when downloading.
+#
+# Bump a pin (downloads the archive, verifies/computes the sha256):
+#   scripts/bump.sh <name> <version> [sha256]
+# then commit deps.toml to a branch and open a PR.
+
+[config.darwin]
+deployment_target = "26.0" # minimum macOS the binaries will run on
+architectures = ["arm64"]
+
+# ---------------------------------------------------------------- openssl
+
+[[darwin]]
+name = "openssl"
+version = "3.6.4"
+url = "https://github.com/openssl/openssl/releases/download/openssl-{version}/openssl-{version}.tar.gz"
+sha256 = "9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef"
+kind = "openssl"
+configure_flags = ["no-tests", "no-docs"]
+
+# ---------------------------------------------------------------- protobuf
+# Cross builds compile a native protoc first, then build only the libraries
+# for the target arch. utf8_range is fetched by CMake FetchContent, so
+# protobuf builds need network access.
+
+[[darwin]]
+name = "protobuf"
+version = "33.4"
+url = "https://github.com/protocolbuffers/protobuf/releases/download/v{version}/protobuf-{version}.tar.gz"
+sha256 = "bc670a4e34992c175137ddda24e76562bb928f849d712a0e3c2fb2e19249bea1"
+kind = "cmake"
+depends_on = ["abseil"]
+
+[darwin.cmake_options]
+protobuf_BUILD_TESTS = "OFF"
+protobuf_ABSL_PROVIDER = "package"
+protobuf_BUILD_PROTOC_BINARIES = "ON"
+
+# ---------------------------------------------------------------- abseil
+
+[[darwin]]
+name = "abseil"
+version = "20250512.1"
+url = "https://github.com/abseil/abseil-cpp/archive/refs/tags/{version}.tar.gz"
+sha256 = "9b7a064305e9fd94d124ffa6cc358592eb42b5da588fb4e07d09254aa40086db"
+kind = "cmake"
+
+[darwin.cmake_options]
+ABSL_BUILD_TESTING = "OFF"
+ABSL_PROPAGATE_CXX_STD = "ON"
+
+# ---------------------------------------------------------------- curl
+
+[[darwin]]
+name = "curl"
+version = "8.22.0"
+url = "https://curl.se/download/curl-{version}.tar.bz2"
+sha256 = "5d956a6a22b3c279f50c421ee5d3c9e9d660cb6f115dcf881b579e952130549c"
+kind = "configure"
+depends_on = ["openssl"]
+# @POOL@ expands to the per-arch pool directory holding the built deps.
+configure_flags = [
+  "--disable-shared",
+  "--enable-static",
+  "--with-openssl=@POOL@/openssl",
+  "--enable-ipv6",
+  "--without-nghttp2",
+  "--without-ngtcp2",
+  "--without-quiche",
+  "--without-brotli",
+  "--without-zstd",
+  "--without-libidn2",
+  "--without-libpsl",
+  "--without-librtmp",
+  "--without-libssh2",
+  "--without-gssapi",
+  "--disable-ldap",
+  "--disable-ldaps",
+  "--without-ca-bundle",
+  "--without-ca-path",
+  "--without-ca-fallback",
+]
+
+# ---------------------------------------------------------------- ffmpeg
+# Seed configuration for a remote-play client: VideoToolbox/AudioToolbox
+# decoders for the stream formats chiaki-ng handles. Align with the flags in
+# chiaki-ng's own ffmpeg build script when they diverge.
+
+[[darwin]]
+name = "ffmpeg"
+version = "9.0.2"
+url = "https://ffmpeg.org/releases/ffmpeg-{version}.tar.xz"
+sha256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+kind = "configure"
+configure_flags = [
+  "--disable-programs",
+  "--disable-doc",
+  "--disable-debug",
+  "--disable-autodetect",
+  "--enable-static",
+  "--disable-shared",
+  "--enable-pthreads",
+  "--enable-videotoolbox",
+  "--enable-audiotoolbox",
+  "--disable-everything",
+  "--enable-decoder=h264,hevc,aac,ac3,eac3,flac,mp3,opus,vorbis",
+  "--enable-parser=h264,hevc,aac,ac3,flac,opus,vorbis,mpegaudio",
+  "--enable-demuxer=h264,hevc,aac,ac3,eac3,flac,mp3,ogg,matroska,wav,mpegts,mov",
+  "--enable-protocol=file,tcp,udp",
+  "--enable-hwaccel=h264_videotoolbox,hevc_videotoolbox",
+  "--enable-swresample",
+  "--enable-swscale",
+]
+# @ARCH@ expands to the target architecture; used when cross-compiling.
+cross_configure_flags = ["--enable-cross-compile", "--target-os=darwin", "--arch=@ARCH@"]
+
+# ---------------------------------------------------------------- opus
+
+[[darwin]]
+name = "opus"
+version = "1.6.1"
+url = "https://downloads.xiph.org/releases/opus/opus-{version}.tar.gz"
+sha256 = "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1"
+kind = "cmake"
+
+[darwin.cmake_options]
+OPUS_BUILD_PROGRAMS = "OFF"
+OPUS_BUILD_TESTING = "OFF"
+BUILD_TESTING = "OFF"
+
+# ---------------------------------------------------------------- SDL3
+
+[[darwin]]
+name = "sdl3"
+version = "3.4.16"
+url = "https://github.com/libsdl-org/SDL/releases/download/release-{version}/SDL3-{version}.tar.gz"
+sha256 = "7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68"
+kind = "cmake"
+
+[darwin.cmake_options]
+SDL_SHARED = "OFF"
+SDL_STATIC = "ON"
+SDL_TESTS = "OFF"
+SDL_TEST_LIBRARY = "OFF"
+
+# ---------------------------------------------------------------- miniupnpc
+
+[[darwin]]
+name = "miniupnpc"
+version = "2.3.3"
+url = "https://github.com/miniupnp/miniupnp/releases/download/miniupnpc_{version_us}/miniupnpc-{version}.tar.gz"
+sha256 = "d52a0afa614ad6c088cc9ddff1ae7d29c8c595ac5fdd321170a05f41e634bd1a"
+kind = "cmake"
+
+[darwin.cmake_options]
+UPNPC_BUILD_SHARED = "OFF"
+UPNPC_BUILD_STATIC = "ON"
+UPNPC_BUILD_TESTS = "OFF"
+UPNPC_BUILD_SAMPLE = "OFF"
