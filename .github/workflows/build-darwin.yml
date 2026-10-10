@@ -48,7 +48,7 @@ jobs:
       architectures: ${{ steps.plan.outputs.architectures }}
       revision: ${{ steps.plan.outputs.revision }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: plan
         env:
           ONLY: ${{ inputs.only }}
@@ -63,7 +63,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/build-dep
         with:
           name: ${{ matrix.name }}
@@ -79,15 +79,15 @@ jobs:
       matrix:
         arch: ${{ fromJSON(needs.plan.outputs.architectures) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: pool-*-${{ matrix.arch }}
           merge-multiple: true
           path: pool
       - name: Package
         run: ./scripts/package.sh "${{ matrix.arch }}" "$PWD/pool" "$PWD/dist"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.arch }}
           path: dist
@@ -105,7 +105,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Release tag must live on main
         run: |
           git fetch --quiet origin main
@@ -113,12 +113,12 @@ jobs:
             echo "::error::release tag ${{ github.event.release.tag_name }} is not on main; refusing to publish"
             exit 1
           fi
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           merge-multiple: true
           path: distfiles
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: pool-*
           merge-multiple: true

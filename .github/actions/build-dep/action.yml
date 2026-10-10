@@ -25,14 +25,14 @@ runs:
   using: composite
   steps:
     - id: cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: out/${{ inputs.arch }}/pool/${{ inputs.name }}
         key: dep-${{ inputs.name }}-${{ inputs.arch }}-${{ inputs.image }}-${{ inputs.entryhash }}
 
     - id: depcache
       if: steps.cache.outputs.cache-hit != 'true' && inputs.needs_key != ''
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: out/${{ inputs.arch }}/pool
         key: ${{ inputs.needs_key }}
@@ -44,12 +44,12 @@ runs:
 
     - name: Save cache
       if: steps.cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v6
       with:
         path: out/${{ inputs.arch }}/pool/${{ inputs.name }}
         key: dep-${{ inputs.name }}-${{ inputs.arch }}-${{ inputs.image }}-${{ inputs.entryhash }}
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: pool-${{ inputs.name }}-${{ inputs.arch }}
         # Upload the pool dir itself: upload-artifact strips the single
