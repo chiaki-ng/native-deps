@@ -3,13 +3,13 @@ name: build-darwin
 # Builds the dependencies pinned under deps/<name>/darwin.toml (the explicit
 # list lives in config/darwin.toml). Pushes to main build and package but do
 # not publish. Publishing happens if and only if a GitHub release is
-# published for a tag that lives on main — then everything goes to one
-# rolling `sources` release:
-#   - the verified upstream source archives
+# published for a tag that lives on main — that release receives:
+#   - the verified upstream source archives (downloaded from the pinned
+#     URLs; nothing is fetched from this repo's own releases)
 #   - one build.tar.gz with all compiled dependencies and an internal
 #     SHA256SUMS for every library, plus build.tar.gz.sha256 and build.json
-# The release description lists each library with its compiled version and
-# sha256 sums. The build matrix is derived from the platform config by
+# The release notes are regenerated with each library's compiled version
+# and sha256 sums. The build matrix is derived from the platform config by
 # scripts/plan.sh; nothing in this file names individual dependencies.
 
 on:
@@ -94,8 +94,9 @@ jobs:
 
   publish:
     needs: [plan, assemble]
-    # iff: a release was published (and it isn't this pipeline's own rolling
-    # `sources` release) for a tag that lives on main — enforced below.
+    # iff: a release was published for a tag that lives on main (enforced
+    # below). The tag_name guard just keeps the legacy `sources` mirror
+    # release from triggering a publish into itself.
     if: >-
       github.event_name == 'release'
       && github.event.release.tag_name != 'sources'
@@ -104,6 +105,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v7
       - name: Release tag must live on main
@@ -137,5 +139,5 @@ jobs:
               deps: (map(.deps) | add | unique_by(.name))}' \
             distfiles/build-*.json >distfiles/build.json
 
-      - name: Publish source archives and per-dependency builds to the sources release
+      - name: Publish sources, build tarball and checksums to the released tag
         run: ./scripts/publish-release.sh "$PWD/distfiles" "$PWD/srcs" "$PWD/pool"
