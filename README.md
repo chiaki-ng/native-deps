@@ -10,3 +10,6 @@ To add archives, pin the version, upstream URL and SHA-256 in the project, then 
 
 Each archive keeps its own upstream licence; see the licence files inside it.
 
+For the sake of build scripts, please keep tags as follows:
+
+<platform>-deps-<ddmmyyyy>
