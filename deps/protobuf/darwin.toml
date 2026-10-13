@@ -19,3 +19,9 @@ protobuf_BUILD_PROTOC_BINARIES = "ON"
 protobuf_BUILD_SHARED_LIBS = "OFF"
 protobuf_WITH_ZLIB = "OFF"
 protobuf_LOCAL_DEPENDENCIES_ONLY = "ON"
+
+[targets.ios.cmake_options]
+protobuf_BUILD_PROTOC_BINARIES = "OFF"
+
+[targets.ios-simulator.cmake_options]
+protobuf_BUILD_PROTOC_BINARIES = "OFF"

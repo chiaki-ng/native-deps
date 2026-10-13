@@ -13,6 +13,7 @@
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${PLATFORM:-darwin}"
+TARGET="${TARGET:-macos}"
 CONFIG_FILE="${CONFIG_FILE:-$ROOT/config/$PLATFORM.toml}"
 DEPS_ROOT="${DEPS_ROOT:-$ROOT/deps}"
 
@@ -50,6 +51,11 @@ _manifest_json() {
 
 config_get() { jq -r "$1" "$(_manifest_json)"; } # e.g. config_get '.config.deployment_target'
 
+all_target_names() { jq -r '(.config.targets // {}) | keys_unsorted[]' "$(_manifest_json)"; }
+target_exists() { [ "$(jq -r --arg t "$1" '(.config.targets // {}) | has($t)' "$(_manifest_json)")" = true ]; }
+target_get() { jq -r --arg t "$TARGET" ".config.targets[\$t] | $1" "$(_manifest_json)"; }
+pool_slug() { if [ "$2" = macos ]; then printf '%s\n' "$1"; else printf '%s-%s\n' "$1" "$2"; fi; }
+
 all_dep_names() { jq -r '(.config.deps // [])[]' "$(_manifest_json)"; }
 
 # The dep's JSON object; empty when the name is unknown.
@@ -57,6 +63,10 @@ dep_json() { jq -c --arg n "$1" '.deps[$n] // empty' "$(_manifest_json)"; }
 dep_exists() { [ -n "$(dep_json "$1")" ]; }
 dep_get() { dep_json "$1" | jq -r "$2"; }
 dep_deps() { dep_json "$1" | jq -r '(.depends_on // [])[]?'; }
+dep_target_flags() { dep_json "$1" | jq -r --arg t "$TARGET" '(.targets[$t].configure_flags // [])[]'; }
+dep_target_cmake_options() {
+  dep_json "$1" | jq -r --arg t "$TARGET" '.targets[$t].cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'
+}
 
 # Substitute {version}, {version_us} (dots -> underscores) and {name} in a URL template.
 resolve_url() { # resolve_url <template> <version> <name>
@@ -114,7 +124,7 @@ extract() { # extract <archive> <dest-dir>; echoes the directory containing the 
   fi
 }
 
-is_cross() { [ "$(uname -m)" != "$1" ]; } # cross-compiling when target arch != host arch
+is_cross() { [ "$(uname -m)" != "$1" ] || [ "$TARGET" != macos ]; } # cross-compiling when target arch or SDK != host
 
 njobs() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
 

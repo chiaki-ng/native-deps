@@ -5,3 +5,9 @@ url = "https://github.com/openssl/openssl/releases/download/openssl-{version}/op
 sha256 = "9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef"
 kind = "openssl"
 configure_flags = ["shared", "no-tests", "no-module", "no-legacy"]
+
+[targets.ios]
+configure_flags = ["no-async", "no-apps"]
+
+[targets.ios-simulator]
+configure_flags = ["no-async", "no-apps"]

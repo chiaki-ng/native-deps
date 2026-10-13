@@ -2,25 +2,25 @@
 # Publishes into the release that triggered this build ($RELEASE_TAG, set
 # by the workflow to the release's tag):
 #   - the downloaded, SHA-verified upstream source archive per pinned dep
-#   - one build.tar.gz with every compiled dependency (a directory per
-#     library, plus an internal SHA256SUMS covering every library file)
+#   - one build.tar.gz with every compiled dependency of every target (a
+#     directory per library, macOS at the root and other targets under
+#     <target>/, plus an internal SHA256SUMS covering every library file)
 #   - build.tar.gz.sha256 (checksum of the tarball) and build.json
 # The release's notes are replaced with the generated description (its
 # title stays whatever its author set). Sources are always downloaded
 # from the pinned upstream URLs — nothing is ever fetched from this
 # repository's own releases.
 #
-#   scripts/publish-release.sh <dist-dir> <srcs-dir> <pool-dir>
-#   (needs gh with GH_TOKEN and RELEASE_TAG set; the pool is used for the
-#   description table)
+#   scripts/publish-release.sh <dist-dir> <srcs-dir>
+#   (needs gh with GH_TOKEN and RELEASE_TAG set; the description table is
+#   read back out of the tarball)
 
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
-[ $# -eq 3 ] || die "usage: publish-release.sh <dist-dir> <srcs-dir> <pool-dir>"
+[ $# -eq 2 ] || die "usage: publish-release.sh <dist-dir> <srcs-dir>"
 DISTDIR=$(cd "$1" && pwd)
 SRCSDIR=$2
-POOLDIR=$3
 mkdir -p "$SRCSDIR"
 shopt -s nullglob
 
@@ -39,6 +39,9 @@ done
 build_tarball="$DISTDIR/build.tar.gz"
 [ -f "$build_tarball" ] || die "build.tar.gz not found in '$DISTDIR' — did assemble run?"
 printf '%s  %s\n' "$(hash_file "$build_tarball")" "build.tar.gz" >"$DISTDIR/build.tar.gz.sha256"
+POOLS=$(mktemp -d)
+trap 'rm -rf "$POOLS"' EXIT
+tar -xf "$build_tarball" -C "$POOLS"
 
 # --- description table: library, compiled version, sha256 sums ---
 # The table cell stays compact (file names, or a count for many-library
@@ -46,12 +49,12 @@ printf '%s  %s\n' "$(hash_file "$build_tarball")" "build.tar.gz" >"$DISTDIR/buil
 # <details> blocks below the table, which GitHub renders.
 rows=""
 details=""
-for d in "$POOLDIR"/*/; do
+for d in "$POOLS"/*/ "$POOLS"/*/*/; do
   info="$d/BUILD-INFO"
   [ -f "$info" ] || continue
   name=$(jq -r '.name' "$info")
   version=$(jq -r '.version' "$info")
-  arch=$(jq -r '.arch' "$info")
+  target=$(jq -r '.target // "macos"' "$info")
   src_sha=$(jq -r '.sha256' "$info")
   src_file=$(basename "$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")")
   names=""
@@ -69,12 +72,12 @@ for d in "$POOLDIR"/*/; do
   done
   [ "$nlibs" -gt 6 ] && names="$nlibs libraries"
   [ -n "$names" ] || names="<em>none</em>"
-  rows="$rows| $name | $version | <code>$src_file</code><br><code>$src_sha</code> | $names"$'\n'
+  rows="$rows| $name | $target | $version | <code>$src_file</code><br><code>$src_sha</code> | $names"$'\n'
   if [ -n "$sums" ]; then
-    details="$details<details><summary><code>$name</code> — $nlibs file(s)</summary>"$'\n\n'"$sums"$'\n'"</details>"$'\n'
+    details="$details<details><summary><code>$name</code> ($target) — $nlibs file(s)</summary>"$'\n\n'"$sums"$'\n'"</details>"$'\n'
   fi
 done
-[ -n "$rows" ] || die "no built dependencies found in pool '$POOLDIR'"
+[ -n "$rows" ] || die "no built dependencies found in '$build_tarball'"
 
 # --- build environment details for the notes ---
 runner="local machine"
@@ -84,7 +87,8 @@ sdk=$(xcrun --show-sdk-version 2>/dev/null)
 clang=$(/usr/bin/clang --version 2>/dev/null | sed -n '1p')
 cmake=$(cmake --version 2>/dev/null | sed -n '1p')
 revision=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unversioned)
-target_archs=$(for i in "$POOLDIR"/*/BUILD-INFO; do jq -r '.arch' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
+target_archs=$(for i in "$POOLS"/*/BUILD-INFO "$POOLS"/*/*/BUILD-INFO; do jq -r '.arch' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
+targets=$(for i in "$POOLS"/*/BUILD-INFO "$POOLS"/*/*/BUILD-INFO; do jq -r '.target // "macos"' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
 
 # --- release description ---
 notes=$(mktemp)
@@ -102,14 +106,15 @@ notes=$(mktemp)
   echo "| Compiler | $clang |"
   echo "| CMake | $cmake |"
   echo "| Architectures | $target_archs |"
-  echo "| Minimum macOS | $(config_get '.config.deployment_target') |"
+  echo "| Targets | $targets |"
+  echo "| Minimum OS | $(config_get '.config.deployment_target') |"
   echo
   echo "## Libraries"
   echo
-  echo "All compiled dependencies ship as one \`build.tar.gz\` containing a directory per library (\`include/\` + \`lib/\` + \`bin/\` + \`BUILD-INFO\` provenance) and a root \`SHA256SUMS\` covering every library file — verify after extraction with \`sha256sum -c SHA256SUMS\`. The tarball's own checksum is published alongside it as \`build.tar.gz.sha256\`."
+  echo "All compiled dependencies ship as one \`build.tar.gz\`, macOS at its root and every other target under \`<target>/\`, containing a directory per library (\`include/\` + \`lib/\` + \`bin/\` + \`BUILD-INFO\` provenance) and a root \`SHA256SUMS\` covering every library file — verify after extraction with \`sha256sum -c SHA256SUMS\`. The tarball's own checksum is published alongside it as \`build.tar.gz.sha256\`."
   echo
-  echo "| Library | Compiled version | Source archive · sha256 | Libraries |"
-  echo "| --- | --- | --- | --- |"
+  echo "| Library | Target | Compiled version | Source archive · sha256 | Libraries |"
+  echo "| --- | --- | --- | --- | --- |"
   printf '%s' "$rows"
   echo
   echo "### Per-file checksums"

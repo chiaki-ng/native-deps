@@ -37,6 +37,8 @@ jobs:
         with:
           name: ${{ matrix.name }}
           arch: ${{ matrix.arch }}
+          target: ${{ matrix.target }}
+          slug: ${{ matrix.slug }}
           image: ${{ matrix.image }}
           entryhash: ${{ matrix.entryhash }}
           needs_key: ${{ matrix.needs_key }}

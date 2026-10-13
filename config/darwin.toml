@@ -19,3 +19,17 @@ deps = [
   "sdl3",
   "miniupnpc",
 ]
+
+[targets.macos]
+sdk = "macosx"
+minimum_flag = "-mmacosx-version-min"
+
+[targets.ios]
+sdk = "iphoneos"
+minimum_flag = "-mios-version-min"
+cmake_system_name = "iOS"
+
+[targets.ios-simulator]
+sdk = "iphonesimulator"
+minimum_flag = "-mios-simulator-version-min"
+cmake_system_name = "iOS"

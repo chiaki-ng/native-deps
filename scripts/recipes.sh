@@ -9,21 +9,29 @@
 # lookup fenced off from Homebrew and the cmake registry so builds only
 # ever see the pinned pool.
 
-# Expand tokens in manifest flags: @ARCH@ -> target arch, @POOL@ -> dep pool root.
-expand_tokens() { printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g"; }
+# Expand tokens in manifest flags: @ARCH@ -> target arch, @POOL@ -> dep pool root,
+# @SDK@ -> target SDK path, @MINFLAG@ -> the target's minimum-OS compiler flag.
+expand_tokens() {
+  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g"
+}
 
 recipe_cmake() { # recipe_cmake <name> <srcdir>
-  local name=$1 srcdir=$2 b="$2/ci-build" opts kv crossargs depargs shared extra=""
-  opts=$(dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"' | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
+  local name=$1 srcdir=$2 b="$2/ci-build" opts kv crossargs depargs shared extra="" system
+  opts=$({ dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'; dep_target_cmake_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then shared=ON; else shared=OFF; fi
   crossargs=""
-  if is_cross "$ARCH"; then crossargs="-DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=$ARCH"; fi
+  system=$(target_get '.cmake_system_name // empty')
+  if [ -n "$system" ]; then
+    crossargs="-DCMAKE_SYSTEM_NAME=$system -DCMAKE_OSX_SYSROOT=$SDK_NAME -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"
+  elif is_cross "$ARCH"; then
+    crossargs="-DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=$ARCH"
+  fi
   depargs=""
   [ -n "$DEP_PREFIX_PATH" ] && depargs="-DCMAKE_PREFIX_PATH=$DEP_PREFIX_PATH"
 
   # protobuf cross builds need a protoc that runs on the build host: build a
   # native one first, then build only the libraries for the target arch.
-  if [ "$name" = protobuf ] && is_cross "$ARCH"; then
+  if [ "$name" = protobuf ] && [ "$TARGET" = macos ] && is_cross "$ARCH"; then
     log "protobuf: building host protoc ($(uname -m)) for cross-compilation"
     env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
       cmake -S "$srcdir" -B "$srcdir/host-build" \
@@ -58,14 +66,14 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
 recipe_configure() { # recipe_configure <name> <srcdir>
   local name=$1 srcdir=$2 b="$2/ci-build" flags="" f hostarg="" crossflags="" linkage
   while IFS= read -r f; do flags="$flags$(expand_tokens "$f") "; done \
-    <<<"$(dep_get "$name" '(.configure_flags // [])[]')"
+    <<<"$(dep_get "$name" '(.configure_flags // [])[]'; dep_target_flags "$name")"
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then
     linkage="--enable-shared --disable-static"
   else
     linkage="--enable-static --disable-shared"
   fi
   if is_cross "$ARCH"; then
-    hostarg="--host=$ARCH-apple-darwin"
+    [ "$(dep_get "$name" '.host_flag == false')" = true ] || hostarg="--host=$ARCH-apple-darwin"
     while IFS= read -r f; do crossflags="$crossflags$(expand_tokens "$f") "; done \
       <<<"$(dep_get "$name" '(.cross_configure_flags // [])[]')"
   fi
@@ -93,7 +101,7 @@ recipe_openssl() { # recipe_openssl <name> <srcdir>
   esac
   # shared vs no-shared comes from configure_flags, like build.py
   while IFS= read -r f; do flags="$flags$(expand_tokens "$f") "; done \
-    <<<"$(dep_get "$name" '(.configure_flags // [])[]')"
+    <<<"$(dep_get "$name" '(.configure_flags // [])[]'; dep_target_flags "$name")"
   (
     cd "$srcdir"
     env CC=clang CFLAGS="$ARCH_FLAGS" \
@@ -105,7 +113,7 @@ recipe_openssl() { # recipe_openssl <name> <srcdir>
 
 build_dep() { # build_dep <name>; fetch, extract and build into $PREFIX
   local name=$1 srcdir archive kind
-  log "building $name for $ARCH"
+  log "building $name for $ARCH $TARGET"
   archive=$(fetch_source "$name" "$WORK/srcs")
   rm -rf "$WORK/build/$name"
   srcdir=$(extract "$archive" "$WORK/build/$name")

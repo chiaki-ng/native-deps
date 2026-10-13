@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Build pinned dependencies from source for one darwin architecture.
+# Build pinned dependencies from source for one darwin architecture and
+# target (TARGET=macos|ios|ios-simulator, default macos).
 #
 #   scripts/build.sh <arch> [dep ...]
 #
 # Without dep names, builds everything. Each dep installs into its own
-# prefix under out/<arch>/pool/<name>; a BUILD-INFO marker makes already
+# prefix under out/<arch>/pool/<name> (out/<arch>-<target> off macOS); a BUILD-INFO marker makes already
 # built deps skippable (this is what the CI cache restores).
 
 set -euo pipefail
@@ -37,8 +38,12 @@ case "$xc_major" in
 esac
 [ "$xc_major" -ge 26 ] || die "Xcode 26+ required (the macOS 26 toolchain); found: $xc_line"
 
+target_exists "$TARGET" || die "unknown target '$TARGET' (not in the targets of config/$PLATFORM.toml)"
 MIN=$(config_get '.config.deployment_target')
-WORK="$ROOT/out/$ARCH"
+SDK_NAME=$(target_get '.sdk')
+MIN_FLAG=$(target_get '.minimum_flag')
+SDK_PATH=$(xcrun --sdk "$SDK_NAME" --show-sdk-path) || die "SDK '$SDK_NAME' is not installed"
+WORK="$ROOT/out/$(pool_slug "$ARCH" "$TARGET")"
 POOL="$WORK/pool"
 mkdir -p "$POOL" "$WORK/srcs" "$WORK/build"
 
@@ -70,16 +75,18 @@ write_build_info() { # write_build_info <name>
     --arg sha256 "$(dep_get "$name" '.sha256')" \
     --arg kind "$(dep_get "$name" '.kind')" \
     --arg arch "$ARCH" \
+    --arg target "$TARGET" \
     --arg deployment_target "$MIN" \
     --arg toolchain "$xc" \
     '{name: $name, version: $version, sha256: $sha256, kind: $kind,
-      arch: $arch, deployment_target: $deployment_target, toolchain: $toolchain}' \
+      arch: $arch, target: $target, deployment_target: $deployment_target, toolchain: $toolchain}' \
     >"$POOL/$name/BUILD-INFO"
 }
 
 # Build in dependency order.
-ARCH_FLAGS="-arch $ARCH -mmacosx-version-min=$MIN -isysroot $(xcrun --show-sdk-path)"
-ARCH_LDFLAGS="-arch $ARCH -mmacosx-version-min=$MIN"
+ARCH_FLAGS="-arch $ARCH $MIN_FLAG=$MIN -isysroot $SDK_PATH"
+ARCH_LDFLAGS="-arch $ARCH $MIN_FLAG=$MIN"
+[ "$TARGET" = macos ] || ARCH_LDFLAGS="$ARCH_LDFLAGS -isysroot $SDK_PATH"
 while IFS= read -r name; do
   [ -n "$name" ] || continue
   if [ -f "$POOL/$name/BUILD-INFO" ]; then
@@ -88,10 +95,10 @@ while IFS= read -r name; do
     current_xc=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
     built_xc=$(jq -r '.toolchain' "$POOL/$name/BUILD-INFO")
     if [ "$built_xc" = "$current_xc" ]; then
-      log "$name ($ARCH): already built, skipping"
+      log "$name ($ARCH $TARGET): already built, skipping"
       continue
     fi
-    log "$name ($ARCH): built with '$built_xc' but toolchain is '$current_xc' — rebuilding"
+    log "$name ($ARCH $TARGET): built with '$built_xc' but toolchain is '$current_xc' — rebuilding"
     rm -rf "$POOL/$name"
   fi
 
@@ -113,4 +120,4 @@ while IFS= read -r name; do
   write_build_info "$name"
 done < <(resolve_order | grep -Fx -f "$PLAN_FILE")
 
-log "done: $(wc -l <"$PLAN_FILE" | tr -d ' ') dependency(ies) built for $ARCH"
+log "done: $(wc -l <"$PLAN_FILE" | tr -d ' ') dependency(ies) built for $ARCH $TARGET"

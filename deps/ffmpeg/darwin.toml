@@ -8,6 +8,7 @@ url = "https://ffmpeg.org/releases/ffmpeg-{version}.tar.xz"
 sha256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 kind = "configure"
 shared = true
+host_flag = false
 configure_flags = [
   "--arch=arm64",
   "--target-os=darwin",
@@ -32,3 +33,9 @@ configure_flags = [
 
 # @ARCH@ expands to the target architecture; used when cross-compiling.
 cross_configure_flags = ["--enable-cross-compile", "--target-os=darwin", "--arch=@ARCH@"]
+
+[targets.ios]
+configure_flags = ["--sysroot=@SDK@", "--extra-cflags=@MINFLAG@", "--extra-ldflags=@MINFLAG@"]
+
+[targets.ios-simulator]
+configure_flags = ["--sysroot=@SDK@", "--extra-cflags=@MINFLAG@", "--extra-ldflags=@MINFLAG@"]

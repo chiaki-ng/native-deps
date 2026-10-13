@@ -29,6 +29,11 @@ on:
         type: choice
         options: [all, arm64, x86_64]
         default: all
+      target:
+        description: 'Target'
+        type: choice
+        options: [all, macos, ios, ios-simulator]
+        default: all
 
 permissions:
   contents: read
@@ -53,6 +58,7 @@ jobs:
         env:
           ONLY: ${{ inputs.only }}
           ARCH: ${{ inputs.arch }}
+          ONLY_TARGET: ${{ inputs.target }}
           RUNNER_IMAGE: ${{ env.RUNNER_IMAGE }}
         run: ./scripts/plan.sh
 
@@ -68,6 +74,8 @@ jobs:
         with:
           name: ${{ matrix.name }}
           arch: ${{ matrix.arch }}
+          target: ${{ matrix.target }}
+          slug: ${{ matrix.slug }}
           image: ${{ matrix.image }}
           entryhash: ${{ matrix.entryhash }}
           needs_key: ${{ matrix.needs_key }}
@@ -82,11 +90,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          pattern: pool-*-${{ matrix.arch }}
-          merge-multiple: true
-          path: pool
+          pattern: pool-${{ matrix.arch }}*
+          path: pools
       - name: Package
-        run: ./scripts/package.sh "${{ matrix.arch }}" "$PWD/pool" "$PWD/dist"
+        run: |
+          for artifact in pools/pool-*; do
+            slug=${artifact#pools/pool-}
+            slug=${slug%%--*}
+            mkdir -p "out/$slug/pool"
+            cp -R "$artifact"/. "out/$slug/pool/"
+          done
+          ./scripts/package.sh "${{ matrix.arch }}" "$PWD/out" "$PWD/dist"
       - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.arch }}
@@ -120,12 +134,6 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: distfiles
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: pool-*
-          merge-multiple: true
-          path: pool
-
       - name: Build metadata
         run: |
           rev='${{ needs.plan.outputs.revision }}'
@@ -136,8 +144,9 @@ jobs:
           jq -s --arg rev "$rev" --argjson files "$files" \
             '{revision: $rev, files: $files,
               architectures: (map(.arch) | unique),
-              deps: (map(.deps) | add | unique_by(.name))}' \
+              deps: (map(.deps) | add | unique_by(.name)),
+              targets: (map(.targets) | add)}' \
             distfiles/build-*.json >distfiles/build.json
 
       - name: Publish sources, build tarball and checksums to the released tag
-        run: ./scripts/publish-release.sh "$PWD/distfiles" "$PWD/srcs" "$PWD/pool"
+        run: ./scripts/publish-release.sh "$PWD/distfiles" "$PWD/srcs"
