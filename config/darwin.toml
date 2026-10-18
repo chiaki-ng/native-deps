@@ -11,6 +11,7 @@ architectures = ["arm64"]
 
 deps = [
   "openssl",
+  "nghttp2",
   "abseil",
   "protobuf",
   "curl",
