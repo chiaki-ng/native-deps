@@ -27,7 +27,7 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
     crossargs="-DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=$ARCH"
   fi
   depargs=""
-  [ -n "$DEP_PREFIX_PATH" ] && depargs="-DCMAKE_PREFIX_PATH=$DEP_PREFIX_PATH"
+  [ -n "$DEP_PREFIX_PATH" ] && depargs="-DCMAKE_PREFIX_PATH=${DEP_PREFIX_PATH//:/;}"
 
   # protobuf cross builds need a protoc that runs on the build host: build a
   # native one first, then build only the libraries for the target arch.
@@ -46,6 +46,7 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
   fi
 
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="${DEP_PKGCONFIG#:}" \
     cmake -S "$srcdir" -B "$b" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
