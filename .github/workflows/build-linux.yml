@@ -1,0 +1,150 @@
+name: build-linux
+
+on:
+  push:
+    branches: [main]
+    paths: ['deps/**', 'config/**', 'scripts/**', '.github/**', 'Makefile']
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated deps to build (empty = all)'
+        type: string
+        default: ''
+      arch:
+        description: 'Architecture'
+        type: choice
+        options: [all, x86_64, aarch64]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLATFORM: linux
+
+jobs:
+  plan:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'linux-deps-')
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      architectures: ${{ steps.plan.outputs.architectures }}
+      revision: ${{ steps.plan.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+          ARCH: ${{ inputs.arch }}
+        run: ./scripts/plan.sh
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.image }}
+    container:
+      image: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap the container
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3 jq zstd
+      - uses: actions/checkout@v7
+      - name: Install the toolchain packages
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          apt-get install -y --no-install-recommends $(./scripts/plan.sh --packages)
+      - uses: ./.github/actions/build-dep
+        with:
+          name: ${{ matrix.name }}
+          arch: ${{ matrix.arch }}
+          target: ${{ matrix.target }}
+          slug: ${{ matrix.slug }}
+          image: ${{ matrix.image }}
+          entryhash: ${{ matrix.entryhash }}
+          needs_key: ${{ matrix.needs_key }}
+          platform: linux
+
+  assemble:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.architectures) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: pool-${{ matrix.arch }}--*
+          path: pools
+      - name: Package
+        run: |
+          for artifact in pools/pool-*; do
+            slug=${artifact#pools/pool-}
+            slug=${slug%%--*}
+            mkdir -p "out/$slug/pool"
+            cp -R "$artifact"/. "out/$slug/pool/"
+          done
+          ./scripts/package.sh "${{ matrix.arch }}" "$PWD/out" "$PWD/dist"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.arch }}
+          path: dist
+
+  publish:
+    needs: [plan, assemble]
+    if: >-
+      github.event_name == 'release'
+      && startsWith(github.event.release.tag_name, 'linux-deps-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release tag must live on main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::release tag ${{ github.event.release.tag_name }} is not on main; refusing to publish"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: distfiles
+      - name: Build metadata
+        run: |
+          rev='${{ needs.plan.outputs.revision }}'
+          files=$(cd distfiles && for f in *.tar.*; do
+            [ -f "$f" ] || continue
+            case "$f" in *.sha256) continue ;; esac
+            printf '{"file":"%s","sha256":"%s"}\n' "$f" "$(sha256sum "$f" | cut -d" " -f1)"
+          done | jq -s .)
+          jq -s --arg rev "$rev" --argjson files "$files" \
+            '{platform: "linux", revision: $rev, files: $files,
+              architectures: (map(.arch) | unique),
+              deps: (map(.deps) | add),
+              targets: (map({(.arch): .targets}) | add)}' \
+            distfiles/build-*.json >distfiles/build.json
+
+      - name: Publish sources, build tarballs and checksums to the released tag
+        run: ./scripts/publish-release.sh "$PWD/distfiles" "$PWD/srcs"

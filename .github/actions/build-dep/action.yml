@@ -28,6 +28,10 @@ inputs:
     description: cache key of the first dependency (empty when none)
     required: false
     default: ''
+  platform:
+    description: platform whose config and pins to build (darwin, linux or windows)
+    required: false
+    default: darwin
 runs:
   using: composite
   steps:
@@ -49,6 +53,7 @@ runs:
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
+        PLATFORM: ${{ inputs.platform }}
       run: ./scripts/build.sh '${{ inputs.arch }}' '${{ inputs.name }}'
 
     - name: Save cache

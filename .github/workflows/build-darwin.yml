@@ -47,6 +47,7 @@ env:
 
 jobs:
   plan:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'darwin-deps-')
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -113,7 +114,7 @@ jobs:
     # release from triggering a publish into itself.
     if: >-
       github.event_name == 'release'
-      && github.event.release.tag_name != 'sources'
+      && startsWith(github.event.release.tag_name, 'darwin-deps-')
     runs-on: macos-26
     permissions:
       contents: write
