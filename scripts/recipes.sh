@@ -19,7 +19,7 @@ pkgconfig_libdir() { printf '%s' "${DEP_PKGCONFIG#:}${HOST_PKGCONFIG:+:$HOST_PKG
 
 recipe_cmake() { # recipe_cmake <name> <srcdir>
   local name=$1 srcdir=$2 b="$2/ci-build" opts kv depargs shared extra="" system host_targets
-  opts=$({ dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'; dep_target_cmake_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
+  opts=$({ dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'; dep_target_cmake_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$(expand_tokens "$kv")"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then shared=ON; else shared=OFF; fi
   system=$(target_get '.cmake_system_name // empty')
   depargs=""
