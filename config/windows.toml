@@ -1,0 +1,41 @@
+architectures = ["x86_64"]
+primary_target = "windows"
+
+deps = [
+  "openssl",
+  "nghttp2",
+  "abseil",
+  "protobuf",
+  "curl",
+  "opus",
+  "sdl3",
+  "miniupnpc",
+]
+
+[toolchain]
+msystem = "UCRT64"
+packages = [
+  "make",
+  "patch",
+  "git",
+  "perl",
+  "rsync",
+  "diffutils",
+  "tar",
+  "xz",
+  "bzip2",
+  "zstd",
+  "jq",
+  "mingw-w64-ucrt-x86_64-gcc",
+  "mingw-w64-ucrt-x86_64-cmake",
+  "mingw-w64-ucrt-x86_64-ninja",
+  "mingw-w64-ucrt-x86_64-meson",
+  "mingw-w64-ucrt-x86_64-pkgconf",
+  "mingw-w64-ucrt-x86_64-nasm",
+  "mingw-w64-ucrt-x86_64-python",
+]
+
+[toolchain.runners]
+x86_64 = "windows-2025"
+
+[targets.windows]
