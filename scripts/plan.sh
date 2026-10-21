@@ -111,6 +111,11 @@ if [ "${1:-}" = "--packages" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--image" ]; then
+  config_get '.config.toolchain.image // empty'
+  exit 0
+fi
+
 if [ "${1:-}" = "--check" ]; then
   log "manifest OK: platform $PLATFORM, $(all_dep_names | wc -l | tr -d ' ') deps, architectures: $(config_get '.config.architectures | join(", ")'), targets: $(all_target_names | paste -s -d, - | sed 's/,/, /g')"
   exit 0
