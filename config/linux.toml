@@ -21,10 +21,11 @@ deps = [
 ]
 
 [toolchain]
-image = "docker.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
-glibc = "2.36"
+image = "docker.io/library/gcc:16@sha256:27470de79376e1033091a1f2cbfa805a10d790dcbd980389a07c4d6dc3606240"
+glibc = "2.41"
+gcc = "16"
 packages = [
-  "build-essential",
+  "make",
   "cmake",
   "pkg-config",
   "meson",

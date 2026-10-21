@@ -18,7 +18,7 @@ For the sake of build scripts, please keep tags as follows:
 
 ## Platforms
 
-`PLATFORM=darwin|linux|windows` picks `config/<platform>.toml`, the pins at `deps/<name>/<platform>.toml` and `scripts/toolchain-<platform>.sh`. darwin builds on macOS with Xcode 26; linux builds in the pinned Debian 12 image; windows builds in an MSYS2 UCRT64 shell. `scripts/plan.sh --packages` prints the host packages a platform expects, and `--image` the Linux image.
+`PLATFORM=darwin|linux|windows` picks `config/<platform>.toml`, the pins at `deps/<name>/<platform>.toml` and `scripts/toolchain-<platform>.sh`. darwin builds on macOS with Xcode 26; linux builds in the pinned GCC 16 image (Debian 13, glibc 2.41); windows builds in an MSYS2 UCRT64 shell. `scripts/plan.sh --packages` prints the host packages a platform expects, and `--image` the Linux image.
 
 ## Pins
 
