@@ -19,6 +19,7 @@ deps = [
 
 [toolchain]
 msystem = "UCRT64"
+gcc = "16"
 packages = [
   "make",
   "patch",
