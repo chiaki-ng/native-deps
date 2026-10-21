@@ -15,17 +15,13 @@ expand_tokens() {
   printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g" -e "s|@HOSTBUILD@|${HOST_BUILD:-}|g"
 }
 
+pkgconfig_libdir() { printf '%s' "${DEP_PKGCONFIG#:}${HOST_PKGCONFIG:+:$HOST_PKGCONFIG}" | sed 's/^://'; }
+
 recipe_cmake() { # recipe_cmake <name> <srcdir>
-  local name=$1 srcdir=$2 b="$2/ci-build" opts kv crossargs depargs shared extra="" system host_targets
+  local name=$1 srcdir=$2 b="$2/ci-build" opts kv depargs shared extra="" system host_targets
   opts=$({ dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'; dep_target_cmake_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then shared=ON; else shared=OFF; fi
-  crossargs=""
   system=$(target_get '.cmake_system_name // empty')
-  if [ -n "$system" ]; then
-    crossargs="-DCMAKE_SYSTEM_NAME=$system -DCMAKE_OSX_SYSROOT=$SDK_NAME -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH"
-  elif is_cross "$ARCH"; then
-    crossargs="-DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=$ARCH"
-  fi
   depargs=""
   [ -n "$DEP_PREFIX_PATH" ] && depargs="-DCMAKE_PREFIX_PATH=${DEP_PREFIX_PATH//:/;}"
 
@@ -38,8 +34,7 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
       cmake -S "$srcdir" -B "$srcdir/host-build" \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX="$srcdir/host-prefix" \
-      -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN" \
+      $(toolchain_host_cmake_args) \
       $(dep_get "$name" '.host_cmake_options // {} | to_entries[] | "-D\(.key)=\(.value)"') >/dev/null
     for kv in $host_targets; do
       env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
@@ -50,7 +45,7 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
   fi
 
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
-    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="${DEP_PKGCONFIG#:}" \
+    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="$(pkgconfig_libdir)" \
     cmake -S "$srcdir" -B "$b" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
@@ -58,12 +53,10 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
     -DBUILD_SHARED_LIBS=$shared \
     -DBUILD_TESTING=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN" \
-    -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew;/usr/local;/opt/local" \
+    $(toolchain_cmake_args) \
     -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
     -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
-    $crossargs $depargs $opts $extra
+    $depargs $opts $extra
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS cmake --build "$b" -j "$(njobs)"
   cmake --install "$b"
 }
@@ -78,14 +71,14 @@ recipe_configure() { # recipe_configure <name> <srcdir>
     linkage="--enable-static --disable-shared"
   fi
   if is_cross "$ARCH"; then
-    [ "$(dep_get "$name" '.host_flag == false')" = true ] || hostarg="--host=$ARCH-apple-darwin"
+    [ "$(dep_get "$name" '.host_flag == false')" = true ] || hostarg="--host=$HOST_TRIPLE"
     while IFS= read -r f; do crossflags="$crossflags$(expand_tokens "$f") "; done \
       <<<"$(dep_get "$name" '(.cross_configure_flags // [])[]')"
   fi
   mkdir -p "$b"
   (
     cd "$b"
-    env CC=clang CXX=clang++ \
+    env CC="$CC" CXX="$CXX" \
       CFLAGS="$ARCH_FLAGS" CXXFLAGS="$ARCH_FLAGS" \
       CPPFLAGS="$DEP_CPPFLAGS" \
       LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS" \
@@ -98,19 +91,14 @@ recipe_configure() { # recipe_configure <name> <srcdir>
 }
 
 recipe_openssl() { # recipe_openssl <name> <srcdir>
-  local name=$1 srcdir=$2 target flags="" f
-  case "$ARCH" in
-    arm64) target=darwin64-arm64-cc ;;
-    x86_64) target=darwin64-x86_64-cc ;;
-    *) die "openssl: unsupported arch $ARCH" ;;
-  esac
+  local name=$1 srcdir=$2 flags="" f
   # shared vs no-shared comes from configure_flags, like build.py
   while IFS= read -r f; do flags="$flags$(expand_tokens "$f") "; done \
     <<<"$(dep_get "$name" '(.configure_flags // [])[]'; dep_target_flags "$name")"
   (
     cd "$srcdir"
-    env CC=clang CFLAGS="$ARCH_FLAGS" \
-      ./Configure "$target" --prefix="$PREFIX" --libdir=lib $flags
+    env CC="$CC" CFLAGS="$ARCH_FLAGS" \
+      ./Configure "$OPENSSL_TARGET" --prefix="$PREFIX" --libdir=lib $flags
   )
   make -C "$srcdir" -j "$(njobs)"
   make -C "$srcdir" install_sw
@@ -144,7 +132,7 @@ recipe_meson() { # recipe_meson <name> <srcdir>
     CFLAGS="$ARCH_FLAGS" CXXFLAGS="$ARCH_FLAGS" \
     CPPFLAGS="$DEP_CPPFLAGS" \
     LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS" \
-    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="${DEP_PKGCONFIG#:}" \
+    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="$(pkgconfig_libdir)" \
     CMAKE_PREFIX_PATH="$DEP_PREFIX_PATH" \
     meson setup "$b" "$srcdir" \
     --prefix="$PREFIX" \

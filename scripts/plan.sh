@@ -21,23 +21,24 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./common.sh
 
-RUNNER_IMAGE="${RUNNER_IMAGE:-macos-26}"
-ARCH="${ARCH:-all}"
+RUNNER_IMAGE="${RUNNER_IMAGE:-}"
+ARCH_FILTER="${ARCH:-all}"
+ARCH=all
 ONLY="${ONLY:-}"
 ONLY_TARGET="${ONLY_TARGET:-all}"
 
 validate() {
-  local f a orphans
-  config_get '.config.deployment_target' | grep -qE '^[0-9]+\.[0-9]+$' \
-    || die "config/$PLATFORM.toml: deployment_target must look like 26.0"
+  local f a d p orphans
   archs=$(config_get '.config.architectures[]?')
   [ -n "$archs" ] || die "config/$PLATFORM.toml: architectures must not be empty"
   for a in $archs; do
-    case "$a" in arm64 | x86_64) ;; *) die "config/$PLATFORM.toml: unsupported architecture '$a'" ;; esac
+    toolchain_architectures | grep -qx -- "$a" || die "config/$PLATFORM.toml: unsupported architecture '$a'"
+    [ "$(config_get --arg a "$a" '.config.toolchain.runners[$a] | type')" = string ] \
+      || die "config/$PLATFORM.toml: toolchain.runners needs a runner label for $a"
   done
   [ -n "$(all_target_names)" ] || die "config/$PLATFORM.toml: targets must not be empty"
-  jq -e '.config.targets | to_entries | all((.value.sdk | type) == "string" and (.value.minimum_flag | type) == "string")' \
-    "$(_manifest_json)" >/dev/null || die "config/$PLATFORM.toml: every target needs string sdk and minimum_flag"
+  target_exists "$(primary_target)" || die "config/$PLATFORM.toml: primary_target must name one of its targets"
+  toolchain_check_config
   [ -n "$(all_dep_names)" ] || die "config/$PLATFORM.toml: deps list must not be empty"
 
   # Every pin on disk must be listed, every listed entry must exist on disk.
@@ -65,6 +66,11 @@ validate() {
         >/dev/null || die "deps/$f/$PLATFORM.toml: archive pins need string url and sha256 (or repo, ref and commit for a git pin)"
       dep_get "$f" '.sha256' | grep -qE '^[0-9a-f]{64}$' || die "deps/$f/$PLATFORM.toml: sha256 must be 64 lowercase hex chars"
     fi
+    dep_json "$f" | jq -e '(.architectures // []) | type == "array" and all(type == "string")' >/dev/null \
+      || die "deps/$f/$PLATFORM.toml: architectures must be a list of architecture names"
+    for a in $(dep_get "$f" '(.architectures // [])[]') $(dep_get "$f" '(.arch // {}) | keys[]'); do
+      printf '%s\n' $archs | grep -qx -- "$a" || die "deps/$f/$PLATFORM.toml: architecture '$a' is not enabled in config/$PLATFORM.toml"
+    done
     dep_json "$f" | jq -e '(.patches // []) | type == "array" and all(type == "string")' >/dev/null \
       || die "deps/$f/$PLATFORM.toml: patches must be a list of file names"
     for p in $(dep_patches "$f"); do
@@ -80,16 +86,28 @@ validate() {
       dep_json "$f" | jq -e '(.meson_options // {} | type) == "object"' >/dev/null \
         || die "deps/$f/$PLATFORM.toml: meson_options must be a table"
     fi
-    for d in $(dep_deps "$f"); do
-      dep_exists "$d" || die "deps/$f/$PLATFORM.toml: depends on unknown dep '$d'"
-      [ "$d" != "$f" ] || die "deps/$f/$PLATFORM.toml: depends on itself"
-    done
   done
 
-  resolve_order >/dev/null # cycle check
+  for ARCH in $archs; do
+    for f in $(all_dep_names); do
+      dep_enabled "$f" || continue
+      for d in $(dep_deps "$f"); do
+        dep_exists "$d" || die "deps/$f/$PLATFORM.toml: depends on unknown dep '$d'"
+        [ "$d" != "$f" ] || die "deps/$f/$PLATFORM.toml: depends on itself"
+        dep_enabled "$d" || die "deps/$f/$PLATFORM.toml: depends on '$d', which is not built for $ARCH"
+      done
+    done
+    resolve_order >/dev/null # cycle check
+  done
+  ARCH=all
 }
 
 validate
+
+if [ "${1:-}" = "--packages" ]; then
+  config_get '(.config.toolchain.packages // [])[]'
+  exit 0
+fi
 
 if [ "${1:-}" = "--check" ]; then
   log "manifest OK: platform $PLATFORM, $(all_dep_names | wc -l | tr -d ' ') deps, architectures: $(config_get '.config.architectures | join(", ")'), targets: $(all_target_names | paste -s -d, - | sed 's/,/, /g')"
@@ -108,8 +126,8 @@ fi
 
 # Filter architectures.
 archs=$(config_get '.config.architectures[]' | tr '\n' ' ')
-if [ "$ARCH" != all ]; then
-  case " $archs " in *" $ARCH "*) archs=$ARCH ;; *) die "architecture '$ARCH' not enabled for $PLATFORM in config/$PLATFORM.toml" ;; esac
+if [ "$ARCH_FILTER" != all ]; then
+  case " $archs " in *" $ARCH_FILTER "*) archs=$ARCH_FILTER ;; *) die "architecture '$ARCH_FILTER' not enabled for $PLATFORM in config/$PLATFORM.toml" ;; esac
 fi
 
 targets=$(all_target_names | tr '\n' ' ')
@@ -121,20 +139,24 @@ fi
 # Content hash per dep (recursive over depends_on) -> cache keys.
 memo=$(mktemp)
 includes=""
-for n in $names; do
-  h=$(entry_hash "$n" "$memo")
-  first_dep=$(dep_deps "$n" | head -1)
-  for a in $archs; do
+container=$(config_get '.config.toolchain.image // ""')
+for ARCH in $archs; do
+  image=${RUNNER_IMAGE:-$(config_get --arg a "$ARCH" '.config.toolchain.runners[$a]')}
+  for n in $names; do
+    dep_enabled "$n" || continue
+    h=$(entry_hash "$n" "$memo")
+    first_dep=$(dep_deps "$n" | head -1)
     for t in $targets; do
-      slug=$(pool_slug "$a" "$t")
+      slug=$(pool_slug "$ARCH" "$t")
       needs_key=""
-      [ -n "$first_dep" ] && needs_key="dep-$first_dep-$slug-$RUNNER_IMAGE-$(entry_hash "$first_dep" "$memo")"
-      includes="$includes$(jq -cn --arg name "$n" --arg arch "$a" --arg target "$t" --arg slug "$slug" \
-        --arg image "$RUNNER_IMAGE" --arg entryhash "$h" --arg needs_key "$needs_key" \
-        '{name: $name, arch: $arch, target: $target, slug: $slug, image: $image, entryhash: $entryhash, needs_key: $needs_key}')"$'\n'
+      [ -n "$first_dep" ] && needs_key="dep-$first_dep-$slug-$image-$(entry_hash "$first_dep" "$memo")"
+      includes="$includes$(jq -cn --arg name "$n" --arg arch "$ARCH" --arg target "$t" --arg slug "$slug" \
+        --arg image "$image" --arg container "$container" --arg entryhash "$h" --arg needs_key "$needs_key" \
+        '{name: $name, arch: $arch, target: $target, slug: $slug, image: $image, container: $container, entryhash: $entryhash, needs_key: $needs_key}')"$'\n'
     done
   done
 done
+ARCH=all
 rm -f "$memo"
 
 matrix=$(printf '%s' "$includes" | jq -s '{include: .}')

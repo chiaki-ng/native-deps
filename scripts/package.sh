@@ -36,6 +36,8 @@ shopt -s nullglob
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
+primary=$(primary_target)
+tarball=$(tarball_name "$ARCH")
 roots=""
 count=0
 targets_json="{}"
@@ -43,7 +45,7 @@ for target in $(all_target_names); do
   pool="$OUTDIR/$(pool_slug "$ARCH" "$target")/pool"
   [ -d "$pool" ] || continue
   dest="$STAGE"
-  [ "$target" = macos ] || dest="$STAGE/$target"
+  [ "$target" = "$primary" ] || dest="$STAGE/$target"
   mkdir -p "$dest"
   built=0
   for d in "$pool"/*/; do
@@ -52,11 +54,11 @@ for target in $(all_target_names); do
     [ -f "$info" ] || die "pool entry '$name' ($target) has no BUILD-INFO — malformed artifact?"
     rsync -a "${d%/}" "$dest/"
     rm -rf "$dest/$name/share/man" "$dest/$name/share/doc"
-    [ "$target" != macos ] || roots="$roots $name"
+    [ "$target" != "$primary" ] || roots="$roots $name"
     built=$((built + 1))
   done
   [ "$built" -gt 0 ] || die "pool '$pool' is empty — nothing to package"
-  [ "$target" = macos ] || roots="$roots $target"
+  [ "$target" = "$primary" ] || roots="$roots $target"
   targets_json=$(jq -s --arg target "$target" --argjson all "$targets_json" '$all + {($target): .}' "$pool"/*/BUILD-INFO)
   count=$((count + built))
 done
@@ -66,21 +68,24 @@ done
 (
   cd "$STAGE"
   : >SHA256SUMS
-  find . -type f \( -name '*.a' -o -name '*.dylib' \) | LC_ALL=C sort | while IFS= read -r f; do
+  library_files . | LC_ALL=C sort | while IFS= read -r f; do
     printf '%s  %s\n' "$(hash_file "$f")" "${f#./}"
   done >SHA256SUMS
 )
 
 # shellcheck disable=SC2086
-COPYFILE_DISABLE=1 tar -C "$STAGE" -czf "$DISTDIR/build.tar.gz" SHA256SUMS $roots
-log "packaged $DISTDIR/build.tar.gz ($count dependencies across $(printf '%s' "$targets_json" | jq -r 'keys | join(", ")'))"
+COPYFILE_DISABLE=1 tar -C "$STAGE" -czf "$DISTDIR/$tarball" SHA256SUMS $roots
+log "packaged $DISTDIR/$tarball ($count dependencies across $(printf '%s' "$targets_json" | jq -r 'keys | join(", ")'))"
 
 rev=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unversioned)
 jq -n \
   --arg arch "$ARCH" \
   --arg revision "$rev" \
-  --arg deployment_target "$(config_get '.config.deployment_target')" \
+  --arg platform "$PLATFORM" \
+  --arg tarball "$tarball" \
+  --arg deployment_target "$(config_get '.config.deployment_target // .config.toolchain.glibc // empty')" \
+  --arg primary "$primary" \
   --argjson targets "$targets_json" \
-  '{arch: $arch, revision: $revision, deployment_target: $deployment_target,
-    deps: ($targets.macos // []), targets: $targets}' \
+  '{platform: $platform, arch: $arch, tarball: $tarball, revision: $revision, deployment_target: $deployment_target,
+    deps: ($targets[$primary] // []), targets: $targets}' \
   >"$DISTDIR/build-$ARCH.json"

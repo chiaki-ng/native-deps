@@ -13,36 +13,15 @@ cd "$(dirname "$0")"
 source ./common.sh
 source ./recipes.sh
 
-[ "$(uname -s)" = Darwin ] || die "these builds must run on macOS"
 [ $# -ge 1 ] || die "usage: build.sh <arch> [dep ...]"
 ARCH=$1
 shift
-case "$ARCH" in
-  arm64 | x86_64) ;;
-  *) die "arch must be arm64 or x86_64" ;;
-esac
+toolchain_architectures | grep -qx -- "$ARCH" || die "arch must be one of: $(toolchain_architectures | paste -s -d' ' -)"
 
 need jq "brew install jq"
-need cmake
-need clang
-xcrun -f clang >/dev/null 2>&1 || die "Xcode Command Line Tools not available"
-# The pin: Xcode 26 or newer — the toolchain floor for targeting macOS 26.
-# The macos-26 runner image's default Xcode qualifies; locally whatever
-# xcode-select points at (e.g. Xcode 27 on macOS 27) does too.
-xc_all=$(xcodebuild -version 2>/dev/null || true)
-xc_line=${xc_all%%$'\n'*}
-xc_major=${xc_line#Xcode }
-xc_major=${xc_major%%.*}
-case "$xc_major" in
-  '' | *[!0-9]*) die "cannot parse Xcode version from '${xc_line:-none}'" ;;
-esac
-[ "$xc_major" -ge 26 ] || die "Xcode 26+ required (the macOS 26 toolchain); found: $xc_line"
-
+[ -n "$TARGET" ] || TARGET=$(primary_target)
 target_exists "$TARGET" || die "unknown target '$TARGET' (not in the targets of config/$PLATFORM.toml)"
-MIN=$(config_get '.config.deployment_target')
-SDK_NAME=$(target_get '.sdk')
-MIN_FLAG=$(target_get '.minimum_flag')
-SDK_PATH=$(xcrun --sdk "$SDK_NAME" --show-sdk-path) || die "SDK '$SDK_NAME' is not installed"
+toolchain_setup
 WORK="$ROOT/out/$(pool_slug "$ARCH" "$TARGET")"
 POOL="$WORK/pool"
 mkdir -p "$POOL" "$WORK/srcs" "$WORK/build"
@@ -51,12 +30,13 @@ mkdir -p "$POOL" "$WORK/srcs" "$WORK/build"
 PLAN_FILE="$WORK/plan"
 : >"$PLAN_FILE"
 frontier="$*"
-[ $# -gt 0 ] || frontier=$(all_dep_names | tr '\n' ' ')
+[ $# -gt 0 ] || frontier=$(for n in $(all_dep_names); do if dep_enabled "$n"; then printf '%s ' "$n"; fi; done)
 while :; do
   next=""
   for n in $frontier; do
     [ -n "$n" ] || continue
     dep_exists "$n" || die "unknown dependency '$n' (not in the deps list of config/$PLATFORM.toml)"
+    dep_enabled "$n" || die "dependency '$n' is not built for $ARCH (see architectures in deps/$n/$PLATFORM.toml)"
     grep -qx -- "$n" "$PLAN_FILE" || printf '%s\n' "$n" >>"$PLAN_FILE"
     for d in $(dep_deps "$n"); do
       grep -qx -- "$d" "$PLAN_FILE" || next="$next $d"
@@ -68,7 +48,7 @@ done
 
 write_build_info() { # write_build_info <name>
   local name=$1 xc
-  xc=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+  xc=$(toolchain_id)
   jq -n \
     --arg name "$name" \
     --argjson pin "$(dep_json "$name")" \
@@ -85,19 +65,12 @@ write_build_info() { # write_build_info <name>
 }
 
 # Build in dependency order.
-CC=clang
-CXX=clang++
-MESON_SYSTEM=darwin
-case "$ARCH" in arm64) MESON_CPU_FAMILY=aarch64 ;; *) MESON_CPU_FAMILY=$ARCH ;; esac
-ARCH_FLAGS="-arch $ARCH $MIN_FLAG=$MIN -isysroot $SDK_PATH"
-ARCH_LDFLAGS="-arch $ARCH $MIN_FLAG=$MIN"
-[ "$TARGET" = macos ] || ARCH_LDFLAGS="$ARCH_LDFLAGS -isysroot $SDK_PATH"
 while IFS= read -r name; do
   [ -n "$name" ] || continue
   if [ -f "$POOL/$name/BUILD-INFO" ]; then
     # Built with a different toolchain (e.g. local pool after an Xcode
     # upgrade)? Rebuild instead of serving the stale entry.
-    current_xc=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    current_xc=$(toolchain_id)
     built_xc=$(jq -r '.toolchain' "$POOL/$name/BUILD-INFO")
     if [ "$built_xc" = "$current_xc" ]; then
       log "$name ($ARCH $TARGET): already built, skipping"
@@ -112,10 +85,10 @@ while IFS= read -r name; do
   DEP_LDFLAGS=""
   DEP_PKGCONFIG=""
   DEP_PREFIX_PATH=""
-  for d in $(dep_deps "$name"); do
+  for d in $(dep_closure "$name"); do
     [ -f "$POOL/$d/BUILD-INFO" ] || die "$name: dependency '$d' has not been built (cycle or ordering bug)"
     DEP_CPPFLAGS="$DEP_CPPFLAGS -I$POOL/$d/include"
-    DEP_LDFLAGS="$DEP_LDFLAGS -L$POOL/$d/lib"
+    DEP_LDFLAGS="$DEP_LDFLAGS $(toolchain_dep_ldflags "$POOL/$d/lib")"
     DEP_PKGCONFIG="$DEP_PKGCONFIG:$POOL/$d/lib/pkgconfig"
     if [ -n "$DEP_PREFIX_PATH" ]; then DEP_PREFIX_PATH="$DEP_PREFIX_PATH:$POOL/$d"; else DEP_PREFIX_PATH="$POOL/$d"; fi
   done

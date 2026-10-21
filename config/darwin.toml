@@ -8,6 +8,7 @@
 
 deployment_target = "26.0"
 architectures = ["arm64"]
+primary_target = "macos"
 
 deps = [
   "openssl",
@@ -20,6 +21,10 @@ deps = [
   "sdl3",
   "miniupnpc",
 ]
+
+[toolchain.runners]
+arm64 = "macos-26"
+x86_64 = "macos-26"
 
 [targets.macos]
 sdk = "macosx"

@@ -41,12 +41,19 @@ for name in $(all_dep_names); do
 done
 
 # --- the build archive and its checksum sidecar ---
-build_tarball="$DISTDIR/build.tar.gz"
-[ -f "$build_tarball" ] || die "build.tar.gz not found in '$DISTDIR' — did assemble run?"
-printf '%s  %s\n' "$(hash_file "$build_tarball")" "build.tar.gz" >"$DISTDIR/build.tar.gz.sha256"
 POOLS=$(mktemp -d)
 trap 'rm -rf "$POOLS"' EXIT
-tar -xf "$build_tarball" -C "$POOLS"
+tarballs=""
+for a in $(config_get '.config.architectures[]'); do
+  build_tarball="$DISTDIR/$(tarball_name "$a")"
+  [ -f "$build_tarball" ] || continue
+  printf '%s  %s\n' "$(hash_file "$build_tarball")" "$(basename "$build_tarball")" >"$build_tarball.sha256"
+  tarballs="$tarballs $build_tarball $build_tarball.sha256"
+  mkdir -p "$POOLS/$a"
+  tar -xf "$build_tarball" -C "$POOLS/$a"
+done
+[ -n "$tarballs" ] || die "no build tarball found in '$DISTDIR' — did assemble run?"
+primary=$(primary_target)
 
 # --- description table: library, compiled version, sha256 sums ---
 # The table cell stays compact (file names, or a count for many-library
@@ -54,12 +61,12 @@ tar -xf "$build_tarball" -C "$POOLS"
 # <details> blocks below the table, which GitHub renders.
 rows=""
 details=""
-for d in "$POOLS"/*/ "$POOLS"/*/*/; do
+for d in "$POOLS"/*/ "$POOLS"/*/*/ "$POOLS"/*/*/*/; do
   info="$d/BUILD-INFO"
   [ -f "$info" ] || continue
   name=$(jq -r '.name' "$info")
   version=$(jq -r '.version' "$info")
-  target=$(jq -r '.target // "macos"' "$info")
+  target=$(jq -r --arg p "$primary" '(.target // $p) + " " + .arch' "$info")
   if [ "$(jq -r '.commit // empty' "$info")" != "" ]; then
     src_cell="<code>$(jq -r '.repo' "$info")</code> $(jq -r '.ref' "$info")<br><code>$(jq -r '.commit' "$info")</code>"
   else
@@ -69,7 +76,7 @@ for d in "$POOLS"/*/ "$POOLS"/*/*/; do
   names=""
   sums=""
   nlibs=0
-  for a in "$d"/lib/*.a "$d"/lib/*.dylib; do
+  for a in "$d"/lib/*.a "$d"/lib/*.dylib "$d"/lib/*.so "$d"/lib/*.so.* "$d"/lib/*.lib "$d"/bin/*.dll; do
     [ -e "$a" ] || continue
     [ -L "$a" ] && continue # skip unversioned/version symlinks; hash the real file
     nlibs=$((nlibs + 1))
@@ -86,18 +93,15 @@ for d in "$POOLS"/*/ "$POOLS"/*/*/; do
     details="$details<details><summary><code>$name</code> ($target) — $nlibs file(s)</summary>"$'\n\n'"$sums"$'\n'"</details>"$'\n'
   fi
 done
-[ -n "$rows" ] || die "no built dependencies found in '$build_tarball'"
+[ -n "$rows" ] || die "no built dependencies found in$tarballs"
 
 # --- build environment details for the notes ---
 runner="local machine"
 [ -n "${ImageOS:-}" ] && runner="GitHub Actions ($ImageOS${ImageVersion:+ image $ImageVersion})"
-xcode=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
-sdk=$(xcrun --show-sdk-version 2>/dev/null)
-clang=$(/usr/bin/clang --version 2>/dev/null | sed -n '1p')
-cmake=$(cmake --version 2>/dev/null | sed -n '1p')
 revision=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unversioned)
-target_archs=$(for i in "$POOLS"/*/BUILD-INFO "$POOLS"/*/*/BUILD-INFO; do jq -r '.arch' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
-targets=$(for i in "$POOLS"/*/BUILD-INFO "$POOLS"/*/*/BUILD-INFO; do jq -r '.target // "macos"' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
+infos=$(find "$POOLS" -name BUILD-INFO)
+target_archs=$(for i in $infos; do jq -r '.arch' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
+targets=$(for i in $infos; do jq -r --arg p "$primary" '.target // $p' "$i"; done | sort -u | tr '\n' ' ' | sed 's/ *$//')
 
 # --- release description ---
 notes=$(mktemp)
@@ -110,17 +114,13 @@ notes=$(mktemp)
   echo "| --- | --- |"
   echo "| Revision | \`$revision\` |"
   echo "| Built on | $runner |"
-  echo "| Xcode | $xcode |"
-  echo "| macOS SDK | $sdk |"
-  echo "| Compiler | $clang |"
-  echo "| CMake | $cmake |"
+  toolchain_release_notes "$POOLS"
   echo "| Architectures | $target_archs |"
   echo "| Targets | $targets |"
-  echo "| Minimum OS | $(config_get '.config.deployment_target') |"
   echo
   echo "## Libraries"
   echo
-  echo "All compiled dependencies ship as one \`build.tar.gz\`, macOS at its root and every other target under \`<target>/\`, containing a directory per library (\`include/\` + \`lib/\` + \`bin/\` + \`BUILD-INFO\` provenance) and a root \`SHA256SUMS\` covering every library file — verify after extraction with \`sha256sum -c SHA256SUMS\`. The tarball's own checksum is published alongside it as \`build.tar.gz.sha256\`."
+  echo "All compiled dependencies ship as $(for t in $tarballs; do case "$t" in *.sha256) ;; *) printf '`%s` ' "$(basename "$t")" ;; esac; done)(one per architecture), $primary at the root and every other target under \`<target>/\`, containing a directory per library (\`include/\` + \`lib/\` + \`bin/\` + \`BUILD-INFO\` provenance) and a root \`SHA256SUMS\` covering every library file — verify after extraction with \`sha256sum -c SHA256SUMS\`. Each tarball's own checksum is published alongside it as \`<tarball>.sha256\`."
   echo
   echo "| Library | Target | Compiled version | Source archive · sha256 | Libraries |"
   echo "| --- | --- | --- | --- | --- |"
@@ -137,5 +137,5 @@ gh release view "$RELEASE_TAG" >/dev/null 2>&1 \
   || die "release '$RELEASE_TAG' does not exist — publish is triggered by releasing it"
 gh release edit "$RELEASE_TAG" --notes-file "$notes"
 # shellcheck disable=SC2086
-gh release upload "$RELEASE_TAG" $archives "$build_tarball" "$DISTDIR/build.tar.gz.sha256" "$DISTDIR/build.json" --clobber
+gh release upload "$RELEASE_TAG" $archives $tarballs "$DISTDIR/build.json" --clobber
 log "release $RELEASE_TAG updated with sources, the build tarball, checksums and metadata"

@@ -13,9 +13,12 @@
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${PLATFORM:-darwin}"
-TARGET="${TARGET:-macos}"
+TARGET="${TARGET:-}"
 CONFIG_FILE="${CONFIG_FILE:-$ROOT/config/$PLATFORM.toml}"
 DEPS_ROOT="${DEPS_ROOT:-$ROOT/deps}"
+
+[ -f "$ROOT/scripts/toolchain-$PLATFORM.sh" ] || { printf 'error: unsupported platform %s (no scripts/toolchain-%s.sh)\n' "$PLATFORM" "$PLATFORM" >&2; exit 1; }
+source "$ROOT/scripts/toolchain-$PLATFORM.sh"
 
 log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -50,22 +53,52 @@ _manifest_json() {
   printf '%s\n' "$__MANIFEST_JSON"
 }
 
-config_get() { jq -r "$1" "$(_manifest_json)"; } # e.g. config_get '.config.deployment_target'
+config_get() { jq -r "$@" "$(_manifest_json)"; } # e.g. config_get '.config.deployment_target'
 
 all_target_names() { jq -r '(.config.targets // {}) | keys_unsorted[]' "$(_manifest_json)"; }
 target_exists() { [ "$(jq -r --arg t "$1" '(.config.targets // {}) | has($t)' "$(_manifest_json)")" = true ]; }
 target_get() { jq -r --arg t "$TARGET" ".config.targets[\$t] | $1" "$(_manifest_json)"; }
-pool_slug() { if [ "$2" = macos ]; then printf '%s\n' "$1"; else printf '%s-%s\n' "$1" "$2"; fi; }
+primary_target() { config_get '.config.primary_target'; }
+pool_slug() { if [ "$2" = "$(primary_target)" ]; then printf '%s\n' "$1"; else printf '%s-%s\n' "$1" "$2"; fi; }
+
+tarball_name() {
+  if [ "$(config_get '.config.architectures | length')" -gt 1 ]; then
+    printf 'build-%s.tar.gz\n' "$1"
+  else
+    printf 'build.tar.gz\n'
+  fi
+}
+
+library_files() { find "$1" -type f \( -name '*.a' -o -name '*.dylib' -o -name '*.so' -o -name '*.so.*' -o -name '*.dll' -o -name '*.lib' \); }
 
 all_dep_names() { jq -r '(.config.deps // [])[]' "$(_manifest_json)"; }
 
 # The dep's JSON object; empty when the name is unknown.
 dep_json() { jq -c --arg n "$1" '.deps[$n] // empty' "$(_manifest_json)"; }
 dep_exists() { [ -n "$(dep_json "$1")" ]; }
-dep_get() { dep_json "$1" | jq -r "$2"; }
-dep_deps() { dep_json "$1" | jq -r '(.depends_on // [])[]?'; }
+dep_view() {
+  dep_json "$1" | jq -c --arg a "${ARCH:-}" '
+    . as $pin
+    | reduce (($pin.arch[$a] // {}) | to_entries[]) as $e ($pin;
+        .[$e.key] = (if ($e.value | type) == "array" then (.[$e.key] // []) + $e.value
+                     elif ($e.value | type) == "object" then (.[$e.key] // {}) + $e.value
+                     else $e.value end))'
+}
+dep_get() { dep_view "$1" | jq -r "$2"; }
+dep_enabled() {
+  case "${ARCH:-all}" in all) return 0 ;; esac
+  dep_json "$1" | jq -e --arg a "$ARCH" '.architectures == null or (.architectures | index($a) != null)' >/dev/null
+}
+dep_deps() { dep_view "$1" | jq -r '(.depends_on // [])[]?'; }
+dep_closure() {
+  local d
+  for d in $(dep_deps "$1"); do
+    dep_closure "$d"
+    printf '%s\n' "$d"
+  done | awk '!seen[$0]++'
+}
 dep_is_git() { [ "$(dep_get "$1" 'has("repo")')" = true ]; }
-dep_patches() { dep_json "$1" | jq -r '(.patches // [])[]'; }
+dep_patches() { dep_view "$1" | jq -r '(.patches // [])[]'; }
 dep_patches_json() {
   local name=$1 p
   for p in $(dep_patches "$name"); do
@@ -199,7 +232,7 @@ apply_patches() {
   done
 }
 
-is_cross() { [ "$(uname -m)" != "$1" ] || [ "$TARGET" != macos ]; } # cross-compiling when target arch or SDK != host
+is_cross() { toolchain_cross "$1"; } # cross-compiling when target arch or SDK != host
 
 njobs() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
 
@@ -209,7 +242,7 @@ njobs() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
 # against it.
 entry_hash() { # entry_hash <name> <memo-file>
   local name=$1 memo=$2 h d
-  if h=$(awk -v n="$name" '$1 == n {print $2}' "$memo" 2>/dev/null) && [ -n "$h" ]; then
+  if h=$(awk -v n="$name" -v a="${ARCH:-all}" '$1 == n && $2 == a {print $3}' "$memo" 2>/dev/null) && [ -n "$h" ]; then
     printf '%s\n' "$h"
     return 0
   fi
@@ -218,9 +251,9 @@ entry_hash() { # entry_hash <name> <memo-file>
     for d in $(dep_patches "$name"); do cat "$(dep_patch_dir "$name")/$d"; done
     for d in $(dep_deps "$name"); do entry_hash "$d" "$memo"; done
     cat "$CONFIG_FILE"
-    cat "$ROOT/scripts/common.sh" "$ROOT/scripts/build.sh" "$ROOT/scripts/recipes.sh"
+    cat "$ROOT/scripts/common.sh" "$ROOT/scripts/build.sh" "$ROOT/scripts/recipes.sh" "$ROOT/scripts/toolchain-$PLATFORM.sh"
   } | hash_stdin | { read -r h
-    printf '%s %s\n' "$name" "$h" >>"$memo"
+    printf '%s %s %s\n' "$name" "${ARCH:-all}" "$h" >>"$memo"
     printf '%s\n' "$h"
   }
 }
@@ -229,7 +262,9 @@ entry_hash() { # entry_hash <name> <memo-file>
 resolve_order() {
   local tmp remaining name d ready progressed pass total
   tmp=$(mktemp -d)
-  all_dep_names >"$tmp/all"
+  for name in $(all_dep_names); do
+    if dep_enabled "$name"; then printf '%s\n' "$name"; fi
+  done >"$tmp/all"
   cp "$tmp/all" "$tmp/remaining"
   : >"$tmp/built"
   total=$(grep -c . "$tmp/all" || true)
@@ -256,3 +291,5 @@ resolve_order() {
   done
   rm -rf "$tmp"
 }
+
+_manifest_json >/dev/null

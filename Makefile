@@ -1,10 +1,9 @@
 PLATFORM ?= darwin
-ARCH ?= arm64
-TARGET ?= macos
-SLUG = $(if $(filter macos,$(TARGET)),$(ARCH),$(ARCH)-$(TARGET))
+ARCH ?= $(shell uname -m)
+TARGET ?=
 
 .PHONY: build package lint bump help
-build: ## Build all deps for ARCH and TARGET (macos|ios|ios-simulator) into out/$(SLUG)/pool (skips already-built)
+build: ## Build all deps for ARCH and TARGET (default: the platform's primary target) into out/<slug>/pool (skips already-built)
 	PLATFORM=$(PLATFORM) TARGET=$(TARGET) ./scripts/build.sh $(ARCH)
 
 package: ## Package every built target under out/ into dist/build.tar.gz (requires: make build)
