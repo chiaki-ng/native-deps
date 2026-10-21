@@ -12,11 +12,11 @@
 # Expand tokens in manifest flags: @ARCH@ -> target arch, @POOL@ -> dep pool root,
 # @SDK@ -> target SDK path, @MINFLAG@ -> the target's minimum-OS compiler flag.
 expand_tokens() {
-  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g"
+  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g" -e "s|@HOSTBUILD@|${HOST_BUILD:-}|g"
 }
 
 recipe_cmake() { # recipe_cmake <name> <srcdir>
-  local name=$1 srcdir=$2 b="$2/ci-build" opts kv crossargs depargs shared extra="" system
+  local name=$1 srcdir=$2 b="$2/ci-build" opts kv crossargs depargs shared extra="" system host_targets
   opts=$({ dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'; dep_target_cmake_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then shared=ON; else shared=OFF; fi
   crossargs=""
@@ -31,18 +31,22 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
 
   # protobuf cross builds need a protoc that runs on the build host: build a
   # native one first, then build only the libraries for the target arch.
-  if [ "$name" = protobuf ] && [ "$TARGET" = macos ] && is_cross "$ARCH"; then
-    log "protobuf: building host protoc ($(uname -m)) for cross-compilation"
+  host_targets=$(dep_get "$name" '(.host_cmake_targets // [])[]')
+  if [ -n "$host_targets" ] && [ -z "$system" ] && is_cross "$ARCH"; then
+    log "$name: building host tools ($(uname -m)) for cross-compilation: $(printf '%s' "$host_targets" | tr '\n' ' ')"
     env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
       cmake -S "$srcdir" -B "$srcdir/host-build" \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX="$srcdir/host-prefix" \
       -DCMAKE_OSX_ARCHITECTURES="$(uname -m)" \
       -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN" \
-      -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_PROTOC_BINARIES=ON >/dev/null
-    env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
-      cmake --build "$srcdir/host-build" --target protoc -j "$(njobs)"
-    extra="-Dprotobuf_BUILD_PROTOC_BINARIES=OFF -DProtobuf_PROTOC_EXECUTABLE=$srcdir/host-build/protoc"
+      $(dep_get "$name" '.host_cmake_options // {} | to_entries[] | "-D\(.key)=\(.value)"') >/dev/null
+    for kv in $host_targets; do
+      env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+        cmake --build "$srcdir/host-build" --target "$kv" -j "$(njobs)"
+    done
+    HOST_BUILD="$srcdir/host-build"
+    extra=$(dep_get "$name" '.cross_cmake_options // {} | to_entries[] | "-D\(.key)=\(.value)"' | while IFS= read -r kv; do printf '%s ' "$(expand_tokens "$kv")"; done)
   fi
 
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
@@ -59,7 +63,7 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
     -DCMAKE_IGNORE_PREFIX_PATH="/opt/homebrew;/usr/local;/opt/local" \
     -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
     -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
-    $crossargs $depargs $extra $opts
+    $crossargs $depargs $opts $extra
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS cmake --build "$b" -j "$(njobs)"
   cmake --install "$b"
 }
