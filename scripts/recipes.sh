@@ -97,8 +97,8 @@ recipe_openssl() { # recipe_openssl <name> <srcdir>
     <<<"$(dep_get "$name" '(.configure_flags // [])[]'; dep_target_flags "$name")"
   (
     cd "$srcdir"
-    env CC="$CC" CFLAGS="$ARCH_FLAGS" \
-      ./Configure "$OPENSSL_TARGET" --prefix="$PREFIX" --libdir=lib $flags
+    env -u CFLAGS -u CXXFLAGS -u LDFLAGS CC="$CC" \
+      ./Configure "$OPENSSL_TARGET" --prefix="$PREFIX" --libdir=lib $OPENSSL_FLAGS $flags
   )
   make -C "$srcdir" -j "$(njobs)"
   make -C "$srcdir" install_sw

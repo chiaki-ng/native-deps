@@ -43,6 +43,7 @@ toolchain_setup() {
   HOST_PKGCONFIG=""
   HOST_TRIPLE="$ARCH-apple-darwin"
   OPENSSL_TARGET="darwin64-$ARCH-cc"
+  OPENSSL_FLAGS="$MIN_FLAG=$MIN -isysroot$SDK_PATH"
 }
 
 toolchain_cross() { [ "$(uname -m)" != "$1" ] || [ "$TARGET" != macos ]; }

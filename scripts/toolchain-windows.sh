@@ -42,6 +42,7 @@ toolchain_setup() {
   HOST_TRIPLE=$(gcc -dumpmachine)
   HOST_PKGCONFIG=""
   OPENSSL_TARGET=mingw64
+  OPENSSL_FLAGS=""
 }
 
 toolchain_cross() { return 1; }

@@ -49,6 +49,7 @@ toolchain_setup() {
   HOST_TRIPLE=$(gcc -dumpmachine)
   HOST_PKGCONFIG="/usr/lib/$HOST_TRIPLE/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
   OPENSSL_TARGET="linux-$ARCH"
+  OPENSSL_FLAGS=""
 }
 
 toolchain_cross() { return 1; }
