@@ -120,7 +120,7 @@ meson_cross_file() {
   } >"$file"
 }
 
-recipe_meson() { # recipe_meson <name> <srcdir>
+recipe_meson() {
   local name=$1 srcdir=$2 b="$2/ci-build" opts kv linkage cross="" menv
   opts=$({ dep_get "$name" '.meson_options // {} | to_entries[] | "\(.key)=\(.value | if type == "array" then join(",") else tostring end)"'; dep_target_meson_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then linkage=shared; else linkage=static; fi
@@ -146,7 +146,7 @@ recipe_meson() { # recipe_meson <name> <srcdir>
   meson install -C "$b"
 }
 
-recipe_make() { # recipe_make <name> <srcdir>
+recipe_make() {
   local name=$1 srcdir=$2 flags="" f
   while IFS= read -r f; do [ -z "$f" ] || flags="$flags$(expand_tokens "$f") "; done \
     <<<"$(dep_get "$name" '(.make_flags // [])[]')"
