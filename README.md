@@ -13,7 +13,7 @@ Each archive keeps its own upstream licence; see the licence files inside it.
 For the sake of build scripts, please keep tags as follows:
 
 ```
-<platform>-deps-<ddmmyyyy>
+<platform>-deps-<ddmmyy>
 ```
 
 ## Platforms
@@ -24,4 +24,4 @@ For the sake of build scripts, please keep tags as follows:
 
 A pin is either an archive (`url` and `sha256`) or a git source (`repo`, `ref` and the full `commit` that is checked out). Either may list `patches`, files under `deps/<name>/patches/` applied with `patch -p1` before the build. Build kinds are `cmake`, `configure`, `openssl`, `meson` and `make`. `make bump NAME=x VERSION=y` moves an archive pin; `make bump NAME=x [REF=y]` resolves a git pin's commit. `BUILD-INFO` in each pool entry records the source, commit and patch hashes.
 
-Releases are tagged `<platform>-deps-<ddmmyyyy>` and each platform's workflow publishes only for its own tag.
+Releases are tagged `<platform>-deps-<ddmmyy>` and each platform's workflow publishes only for its own tag.
