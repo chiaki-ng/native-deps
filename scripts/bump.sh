@@ -18,12 +18,36 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./common.sh
 
-[ $# -eq 2 ] || [ $# -eq 3 ] || die "usage: bump.sh <name> <version> [sha256]"
+if [ "${1:-}" = --git ]; then
+  [ $# -eq 2 ] || [ $# -eq 3 ] || die "usage: bump.sh --git <name> [ref]"
+  name=$2
+  pin=$(dep_pin "$name")
+  [ -f "$pin" ] || die "no pin at $pin (and '$name' must be listed in config/$PLATFORM.toml)"
+  dep_is_git "$name" || die "$pin is an archive pin; bump it with: bump.sh $name <version>"
+  need git
+  repo=$(dep_get "$name" '.repo')
+  ref=${3:-$(dep_get "$name" '.ref')}
+  log "resolving $ref in $repo"
+  refs=$(git ls-remote --tags --heads "$repo") || die "git ls-remote failed for $repo"
+  commit=""
+  for candidate in "refs/tags/$ref^{}" "refs/tags/$ref" "refs/heads/$ref"; do
+    commit=$(printf '%s\n' "$refs" | awk -v r="$candidate" '$2 == r {print $1; exit}')
+    [ -z "$commit" ] || break
+  done
+  [ -n "$commit" ] || die "'$ref' is neither a tag nor a branch of $repo"
+  python3 "$ROOT/scripts/set_pin.py" "$pin" "ref=$ref" "commit=$commit"
+  log "pinned $name $ref at $commit"
+  log "next: commit $pin and open a pull request"
+  exit 0
+fi
+
+[ $# -eq 2 ] || [ $# -eq 3 ] || die "usage: bump.sh <name> <version> [sha256] | bump.sh --git <name> [ref]"
 name=$1
 version=$2
 provided_sha=${3:-}
 pin=$(dep_pin "$name")
 [ -f "$pin" ] || die "no pin at $pin (and '$name' must be listed in config/$PLATFORM.toml)"
+! dep_is_git "$name" || die "$pin is a git pin; bump it with: bump.sh --git $name [ref]"
 
 url=$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")
 log "downloading $url"
@@ -35,7 +59,7 @@ if [ -n "$provided_sha" ] && [ "$provided_sha" != "$sha" ]; then
   die "sha256 mismatch: you passed $provided_sha but the archive hashes to $sha"
 fi
 
-python3 "$ROOT/scripts/set_pin.py" "$pin" "$version" "$sha"
+python3 "$ROOT/scripts/set_pin.py" "$pin" "version=$version" "sha256=$sha"
 rm -rf "$tmp"
 
 log "pinned $name $version (sha256 $sha)"

@@ -32,7 +32,12 @@ need jq "brew install jq"
 # --- verified source archives (downloaded from the pinned upstream URLs) ---
 archives=""
 for name in $(all_dep_names); do
-  archives="$archives $(fetch_source "$name" "$SRCSDIR")"
+  source=$(fetch_source "$name" "$SRCSDIR")
+  if [ -d "$source" ]; then
+    tar --exclude=.git -C "$(dirname "$source")" -czf "$source.tar.gz" "$(basename "$source")"
+    source="$source.tar.gz"
+  fi
+  archives="$archives $source"
 done
 
 # --- the build archive and its checksum sidecar ---
@@ -55,8 +60,12 @@ for d in "$POOLS"/*/ "$POOLS"/*/*/; do
   name=$(jq -r '.name' "$info")
   version=$(jq -r '.version' "$info")
   target=$(jq -r '.target // "macos"' "$info")
-  src_sha=$(jq -r '.sha256' "$info")
-  src_file=$(basename "$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")")
+  if [ "$(jq -r '.commit // empty' "$info")" != "" ]; then
+    src_cell="<code>$(jq -r '.repo' "$info")</code> $(jq -r '.ref' "$info")<br><code>$(jq -r '.commit' "$info")</code>"
+  else
+    src_cell="<code>$(dep_source_name "$name")</code><br><code>$(jq -r '.sha256' "$info")</code>"
+  fi
+  src_cell="$src_cell$(jq -r '(.patches // [])[] | "<br>patch <code>\(.file)</code> <code>\(.sha256)</code>"' "$info" | tr -d '\n')"
   names=""
   sums=""
   nlibs=0
@@ -72,7 +81,7 @@ for d in "$POOLS"/*/ "$POOLS"/*/*/; do
   done
   [ "$nlibs" -gt 6 ] && names="$nlibs libraries"
   [ -n "$names" ] || names="<em>none</em>"
-  rows="$rows| $name | $target | $version | <code>$src_file</code><br><code>$src_sha</code> | $names"$'\n'
+  rows="$rows| $name | $target | $version | $src_cell | $names"$'\n'
   if [ -n "$sums" ]; then
     details="$details<details><summary><code>$name</code> ($target) — $nlibs file(s)</summary>"$'\n\n'"$sums"$'\n'"</details>"$'\n'
   fi

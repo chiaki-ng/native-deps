@@ -71,14 +71,15 @@ write_build_info() { # write_build_info <name>
   xc=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
   jq -n \
     --arg name "$name" \
-    --arg version "$(dep_get "$name" '.version')" \
-    --arg sha256 "$(dep_get "$name" '.sha256')" \
-    --arg kind "$(dep_get "$name" '.kind')" \
+    --argjson pin "$(dep_json "$name")" \
+    --argjson patches "$(dep_patches_json "$name")" \
     --arg arch "$ARCH" \
     --arg target "$TARGET" \
     --arg deployment_target "$MIN" \
     --arg toolchain "$xc" \
-    '{name: $name, version: $version, sha256: $sha256, kind: $kind,
+    '{name: $name, version: $pin.version, sha256: ($pin.sha256 // null),
+      repo: ($pin.repo // null), ref: ($pin.ref // null), commit: ($pin.commit // null),
+      patches: $patches, kind: $pin.kind,
       arch: $arch, target: $target, deployment_target: $deployment_target, toolchain: $toolchain}' \
     >"$POOL/$name/BUILD-INFO"
 }

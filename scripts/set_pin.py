@@ -11,15 +11,16 @@ try:
 except ModuleNotFoundError:
     sys.exit("error: tomlkit required for bumping pins — pip3 install tomlkit")
 
-if len(sys.argv) != 4:
-    sys.exit(f"usage: {sys.argv[0]} <deps/<name>/<platform>.toml> <version> <sha256>")
+if len(sys.argv) < 3 or not all("=" in a for a in sys.argv[2:]):
+    sys.exit(f"usage: {sys.argv[0]} <deps/<name>/<platform>.toml> <key>=<value>...")
 
-path, version, sha = sys.argv[1:4]
+path = sys.argv[1]
 with open(path) as f:
     doc = tomlkit.parse(f.read())
 
-doc["version"] = version
-doc["sha256"] = sha
+for assignment in sys.argv[2:]:
+    key, value = assignment.split("=", 1)
+    doc[key] = value
 
 with open(path, "w") as f:
     f.write(tomlkit.dumps(doc))

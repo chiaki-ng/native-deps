@@ -22,6 +22,7 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "'$1' not found in PATH${2:+ — $2}"; }
 
 dep_pin() { printf '%s/%s/%s.toml' "$DEPS_ROOT" "$1" "$PLATFORM"; } # deps/<name>/<platform>.toml
+dep_patch_dir() { printf '%s/%s/patches' "$DEPS_ROOT" "$1"; }
 
 # JSON view of the manifest: {"config": {...}, "deps": {name: {...}}}.
 # Converted lazily, once per shell.
@@ -63,6 +64,14 @@ dep_json() { jq -c --arg n "$1" '.deps[$n] // empty' "$(_manifest_json)"; }
 dep_exists() { [ -n "$(dep_json "$1")" ]; }
 dep_get() { dep_json "$1" | jq -r "$2"; }
 dep_deps() { dep_json "$1" | jq -r '(.depends_on // [])[]?'; }
+dep_is_git() { [ "$(dep_get "$1" 'has("repo")')" = true ]; }
+dep_patches() { dep_json "$1" | jq -r '(.patches // [])[]'; }
+dep_patches_json() {
+  local name=$1 p
+  for p in $(dep_patches "$name"); do
+    jq -cn --arg file "$p" --arg sha256 "$(hash_file "$(dep_patch_dir "$name")/$p")" '{file: $file, sha256: $sha256}'
+  done | jq -sc .
+}
 dep_target_flags() { dep_json "$1" | jq -r --arg t "$TARGET" '(.targets[$t].configure_flags // [])[]'; }
 dep_target_cmake_options() {
   dep_json "$1" | jq -r --arg t "$TARGET" '.targets[$t].cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'
@@ -93,13 +102,32 @@ download() { # download <dest> <url>...
   return 1
 }
 
+dep_source_name() {
+  local name=$1 version url
+  if dep_is_git "$name"; then
+    printf '%s-%s\n' "$name" "$(dep_get "$name" '.commit')"
+    return 0
+  fi
+  version=$(dep_get "$name" '.version')
+  url=$(dep_get "$name" '.file // .url')
+  basename "$(resolve_url "$url" "$version" "$name")"
+}
+
+fetch_source() {
+  if dep_is_git "$1"; then
+    fetch_git "$@"
+  else
+    fetch_archive "$@"
+  fi
+}
+
 # Download a dep's archive from its pinned upstream URL and verify its SHA-256.
-fetch_source() { # fetch_source <name> <srcs-dir>; echoes the archive path
+fetch_archive() { # fetch_archive <name> <srcs-dir>; echoes the archive path
   local name=$1 srcs=$2 version sha url file archive
   version=$(dep_get "$name" '.version')
   sha=$(dep_get "$name" '.sha256')
   url=$(resolve_url "$(dep_get "$name" '.url')" "$version" "$name")
-  file=$(basename "$url")
+  file=$(dep_source_name "$name")
   archive="$srcs/$file"
   if [ -f "$archive" ] && [ "$(hash_file "$archive")" = "$sha" ]; then
     log "$file: already downloaded, sha256 verified"
@@ -111,8 +139,44 @@ fetch_source() { # fetch_source <name> <srcs-dir>; echoes the archive path
   printf '%s\n' "$archive"
 }
 
+fetch_git() {
+  local name=$1 srcs=$2 repo ref commit dir
+  repo=$(dep_get "$name" '.repo')
+  ref=$(dep_get "$name" '.ref')
+  commit=$(dep_get "$name" '.commit')
+  dir="$srcs/$(dep_source_name "$name")"
+  if [ -d "$dir/.git" ] && [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$commit" ]; then
+    log "$name: $commit already checked out"
+    printf '%s\n' "$dir"
+    return 0
+  fi
+  need git
+  rm -rf "$dir"
+  mkdir -p "$srcs"
+  git init -q "$dir" >&2
+  git -C "$dir" remote add origin "$repo" >&2
+  log "fetching $repo $ref at $commit"
+  git -C "$dir" fetch -q --depth 1 origin "$commit" >&2 \
+    || git -C "$dir" fetch -q origin "+$ref:refs/pin/ref" >&2 \
+    || die "$name: failed to fetch $ref from $repo"
+  git -C "$dir" -c advice.detachedHead=false checkout -q "$commit" >&2 \
+    || die "$name: commit $commit is not reachable from $ref in $repo"
+  [ "$(git -C "$dir" rev-parse HEAD)" = "$commit" ] || die "$name: checked out $(git -C "$dir" rev-parse HEAD), expected $commit"
+  if [ "$(dep_get "$name" 'if has("submodules") then .submodules else true end')" = true ] && [ -f "$dir/.gitmodules" ]; then
+    git -C "$dir" submodule update -q --init --recursive --depth 1 >&2 \
+      || git -C "$dir" submodule update -q --init --recursive >&2 \
+      || die "$name: failed to check out submodules of $commit"
+  fi
+  printf '%s\n' "$dir"
+}
+
 extract() { # extract <archive> <dest-dir>; echoes the directory containing the sources
   mkdir -p "$2"
+  if [ -d "$1" ]; then
+    cp -R "$1" "$2/"
+    printf '%s/%s\n' "$2" "$(basename "$1")"
+    return 0
+  fi
   tar -xf "$1" -C "$2"
   local entries first
   entries=$(ls -A "$2")
@@ -122,6 +186,14 @@ extract() { # extract <archive> <dest-dir>; echoes the directory containing the 
   else
     printf '%s\n' "$2"
   fi
+}
+
+apply_patches() {
+  local name=$1 srcdir=$2 p
+  for p in $(dep_patches "$name"); do
+    log "$name: applying $p"
+    patch -p1 --forward --batch -d "$srcdir" <"$(dep_patch_dir "$name")/$p" >&2 || die "$name: patch $p does not apply"
+  done
 }
 
 is_cross() { [ "$(uname -m)" != "$1" ] || [ "$TARGET" != macos ]; } # cross-compiling when target arch or SDK != host
@@ -140,6 +212,7 @@ entry_hash() { # entry_hash <name> <memo-file>
   fi
   {
     dep_json "$name"
+    for d in $(dep_patches "$name"); do cat "$(dep_patch_dir "$name")/$d"; done
     for d in $(dep_deps "$name"); do entry_hash "$d" "$memo"; done
     cat "$CONFIG_FILE"
     cat "$ROOT/scripts/common.sh" "$ROOT/scripts/build.sh" "$ROOT/scripts/recipes.sh"

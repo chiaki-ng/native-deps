@@ -113,11 +113,12 @@ recipe_openssl() { # recipe_openssl <name> <srcdir>
 }
 
 build_dep() { # build_dep <name>; fetch, extract and build into $PREFIX
-  local name=$1 srcdir archive kind
+  local name=$1 srcdir source kind
   log "building $name for $ARCH $TARGET"
-  archive=$(fetch_source "$name" "$WORK/srcs")
+  source=$(fetch_source "$name" "$WORK/srcs")
   rm -rf "$WORK/build/$name"
-  srcdir=$(extract "$archive" "$WORK/build/$name")
+  srcdir=$(extract "$source" "$WORK/build/$name")
+  apply_patches "$name" "$srcdir"
   kind=$(dep_get "$name" '.kind')
   case "$kind" in
     cmake) recipe_cmake "$name" "$srcdir" ;;

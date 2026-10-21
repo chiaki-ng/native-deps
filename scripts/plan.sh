@@ -50,11 +50,28 @@ validate() {
   [ -z "$orphans" ] || die "pins not listed in config/$PLATFORM.toml deps:$orphans"
 
   for f in $(all_dep_names); do
-    dep_json "$f" | jq -e '(.version|type) == "string" and (.url|type) == "string"
-                           and (.sha256|type) == "string"
-                           and (.kind | IN("cmake","configure","openssl"))' \
-      >/dev/null || die "deps/$f/$PLATFORM.toml: needs string version/url/sha256 and kind of cmake|configure|openssl"
-    dep_get "$f" '.sha256' | grep -qE '^[0-9a-f]{64}$' || die "deps/$f/$PLATFORM.toml: sha256 must be 64 lowercase hex chars"
+    dep_json "$f" | jq -e '(.version|type) == "string" and (.kind | IN("cmake","configure","openssl"))' \
+      >/dev/null || die "deps/$f/$PLATFORM.toml: needs string version and kind of cmake|configure|openssl"
+    if dep_is_git "$f"; then
+      dep_json "$f" | jq -e '(.repo|type) == "string" and (.ref|type) == "string"
+                             and (has("url") or has("sha256") or has("file") | not)
+                             and ((.submodules // false) | type) == "boolean"' \
+        >/dev/null || die "deps/$f/$PLATFORM.toml: git pins need string repo and ref, an optional boolean submodules, and no url, file or sha256"
+      dep_get "$f" '.commit' | grep -qE '^[0-9a-f]{40}$' \
+        || die "deps/$f/$PLATFORM.toml: commit must be the full 40-hex SHA that ref resolves to (scripts/bump.sh --git $f)"
+    else
+      dep_json "$f" | jq -e '(.url|type) == "string" and (.sha256|type) == "string"
+                             and ((.file // "") | type) == "string"' \
+        >/dev/null || die "deps/$f/$PLATFORM.toml: archive pins need string url and sha256 (or repo, ref and commit for a git pin)"
+      dep_get "$f" '.sha256' | grep -qE '^[0-9a-f]{64}$' || die "deps/$f/$PLATFORM.toml: sha256 must be 64 lowercase hex chars"
+    fi
+    dep_json "$f" | jq -e '(.patches // []) | type == "array" and all(type == "string")' >/dev/null \
+      || die "deps/$f/$PLATFORM.toml: patches must be a list of file names"
+    for p in $(dep_patches "$f"); do
+      printf '%s\n' "$p" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._+-]*$' \
+        || die "deps/$f/$PLATFORM.toml: patch '$p' must be a plain file name under deps/$f/patches/"
+      [ -f "$(dep_patch_dir "$f")/$p" ] || die "deps/$f/$PLATFORM.toml: listed patch deps/$f/patches/$p does not exist"
+    done
     if [ "$(dep_get "$f" '.kind')" = cmake ]; then
       dep_json "$f" | jq -e '(.cmake_options // {} | type) == "object"' >/dev/null \
         || die "deps/$f/$PLATFORM.toml: cmake_options must be a table"
