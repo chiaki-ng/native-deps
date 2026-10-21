@@ -139,7 +139,7 @@ recipe_meson() { # recipe_meson <name> <srcdir>
     --buildtype=release \
     --wrap-mode=nodownload \
     -Ddefault_library=$linkage \
-    -Db_staticpic=true \
+    $(toolchain_meson_args) \
     $cross $opts
   meson compile -C "$b" -j "$(njobs)"
   meson install -C "$b"

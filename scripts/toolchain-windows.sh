@@ -46,6 +46,8 @@ toolchain_cmake_args() { printf -- '-G Ninja'; }
 
 toolchain_host_cmake_args() { :; }
 
+toolchain_meson_args() { :; }
+
 toolchain_dep_ldflags() { printf -- '-L%s' "$1"; }
 
 toolchain_release_notes() {

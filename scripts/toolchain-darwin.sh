@@ -60,6 +60,8 @@ toolchain_cmake_args() {
 
 toolchain_host_cmake_args() { printf -- '-DCMAKE_OSX_ARCHITECTURES=%s -DCMAKE_OSX_DEPLOYMENT_TARGET=%s' "$(uname -m)" "$MIN"; }
 
+toolchain_meson_args() { printf -- '-Db_staticpic=true'; }
+
 toolchain_dep_ldflags() { printf -- '-L%s' "$1"; }
 
 toolchain_release_notes() {
