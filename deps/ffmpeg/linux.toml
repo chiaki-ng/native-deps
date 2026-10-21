@@ -1,0 +1,34 @@
+version = "9.0.2"
+url = "https://ffmpeg.org/releases/ffmpeg-{version}.tar.xz"
+sha256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+kind = "configure"
+shared = true
+host_flag = false
+depends_on = ["libdrm", "libva", "vulkan-headers", "vulkan-loader"]
+patches = ["0001-vulkan-ignore-frames-without-hw-context.patch"]
+configure_flags = [
+  "--disable-all",
+  "--disable-autodetect",
+  "--enable-pthreads",
+  "--enable-avcodec",
+  "--enable-avformat",
+  "--enable-avutil",
+  "--enable-decoder=h264,hevc",
+  "--enable-parser=h264,hevc",
+  "--enable-vaapi",
+  "--enable-libdrm",
+  "--enable-vulkan",
+  "--enable-hwaccel=h264_vaapi,hevc_vaapi,h264_vulkan,hevc_vulkan",
+  "--disable-programs",
+  "--disable-doc",
+]
+
+[arch.x86_64]
+depends_on = ["nv-codec-headers"]
+configure_flags = [
+  "--enable-ffnvcodec",
+  "--enable-nvdec",
+  "--enable-cuvid",
+  "--enable-hwaccel=h264_nvdec,hevc_nvdec",
+  "--enable-decoder=h264_cuvid,hevc_cuvid",
+]

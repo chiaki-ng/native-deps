@@ -1,0 +1,22 @@
+version = "7.360.1"
+repo = "https://code.videolan.org/videolan/libplacebo.git"
+ref = "v7.360.1"
+commit = "cee9b076f2c63104ccfd497fa79c39a867293ec4"
+kind = "meson"
+shared = true
+depends_on = ["vulkan-loader", "glslang"]
+patches = ["timing.patch"]
+
+[meson_options]
+vulkan = "enabled"
+vk-proc-addr = "enabled"
+glslang = "enabled"
+shaderc = "disabled"
+opengl = "disabled"
+d3d11 = "disabled"
+lcms = "disabled"
+libdovi = "disabled"
+unwind = "disabled"
+xxhash = "disabled"
+demos = false
+tests = false

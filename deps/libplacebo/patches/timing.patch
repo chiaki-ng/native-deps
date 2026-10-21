@@ -1,0 +1,513 @@
+--- a/src/include/libplacebo/vulkan.h
++++ b/src/include/libplacebo/vulkan.h
+@@ -295,0 +296,18 @@
++
++typedef struct pl_vulkan_gpu_interval_t *pl_vulkan_gpu_interval;
++
++struct pl_vulkan_gpu_interval_result {
++    uint64_t generation;
++    uint64_t frame_id;
++    uint64_t nanoseconds;
++    bool valid;
++    bool crossed_queue_families;
++};
++
++PL_API pl_vulkan_gpu_interval pl_vulkan_gpu_interval_create(pl_vulkan vk);
++PL_API void pl_vulkan_gpu_interval_destroy(pl_vulkan_gpu_interval *interval);
++PL_API bool pl_vulkan_gpu_interval_begin(pl_vulkan_gpu_interval interval,
++                                         uint64_t generation, uint64_t frame_id);
++PL_API bool pl_vulkan_gpu_interval_end(pl_vulkan_gpu_interval interval);
++PL_API bool pl_vulkan_gpu_interval_poll(pl_vulkan_gpu_interval interval,
++                                        struct pl_vulkan_gpu_interval_result *result);
+--- a/src/vulkan/common.h
++++ b/src/vulkan/common.h
+@@ -60,0 +61,12 @@
++struct vk_timing_scope {
++    pl_vulkan_sem start;
++    struct vk_cmd *marker;
++    pl_vulkan_sem commands[64];
++    int num_commands;
++    struct vk_cmd *held[64];
++    int num_held;
++    bool overflow;
++    bool crossed_queue_families;
++    bool invalidated;
++};
++
+@@ -100,0 +113 @@
++    struct vk_timing_scope *timing_scope;
+--- a/src/vulkan/command.h
++++ b/src/vulkan/command.h
+@@ -53,0 +54 @@
++    bool ended;
+@@ -69,0 +71,5 @@
++void vk_cmd_dep_max(struct vk_cmd *cmd, VkPipelineStageFlags2 stage, pl_vulkan_sem dep);
++void vk_cmd_undep(struct vk_cmd *cmd, pl_vulkan_sem dep);
++void vk_timing_flush(struct vk_ctx *vk);
++bool vk_timing_submit_commands(struct vk_cmd **cmds, int count,
++                               pl_vulkan_sem failed_dep, bool has_failed_dep);
+--- a/src/vulkan/command.c
++++ b/src/vulkan/command.c
+@@ -115 +115,13 @@
+-    if (vk->cmds_pending.num > 0) {
++    if (vk->timing_scope && vk->timing_scope->num_held > 0) {
++        struct vk_timing_scope *scope = vk->timing_scope;
++        struct vk_cmd *last_cmd = scope->held[scope->num_held - 1];
++        for (int i = 0; i < scope->num_commands; i++) {
++            if (scope->commands[i].sem != last_cmd->sync.sem) {
++                vk_cmd_dep_max(last_cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
++                               scope->commands[i]);
++            }
++        }
++        vk_cmd_callback(last_cmd, callback, priv, arg);
++    } else if (vk->timing_scope && vk->timing_scope->marker) {
++        vk_cmd_callback(vk->timing_scope->marker, callback, priv, arg);
++    } else if (vk->cmds_pending.num > 0) {
+@@ -144,0 +157,50 @@
++void vk_cmd_dep_max(struct vk_cmd *cmd, VkPipelineStageFlags2 stage, pl_vulkan_sem dep)
++{
++    for (int i = 0; i < cmd->deps.num; i++) {
++        if (cmd->deps.elem[i].semaphore == dep.sem) {
++            cmd->deps.elem[i].value = PL_MAX(cmd->deps.elem[i].value, dep.value);
++            cmd->deps.elem[i].stageMask |= stage;
++            return;
++        }
++    }
++    vk_cmd_dep(cmd, stage, dep);
++}
++
++void vk_cmd_undep(struct vk_cmd *cmd, pl_vulkan_sem dep)
++{
++    for (int i = 0; i < cmd->deps.num; i++) {
++        if (cmd->deps.elem[i].semaphore == dep.sem) {
++            PL_ARRAY_REMOVE_AT(cmd->deps, i);
++            return;
++        }
++    }
++}
++
++bool vk_timing_submit_commands(struct vk_cmd **cmds, int count,
++                               pl_vulkan_sem failed_dep, bool has_failed_dep)
++{
++    pl_vulkan_sem failed[66];
++    int num_failed = 0;
++    if (has_failed_dep) {
++        failed[num_failed++] = failed_dep;
++    }
++    bool ret = true;
++    for (int i = 0; i < count; i++) {
++        for (int j = 0; j < num_failed; j++) {
++            vk_cmd_undep(cmds[i], failed[j]);
++        }
++        pl_vulkan_sem sync = cmds[i]->sync;
++        if (!vk_cmd_submit(&cmds[i])) {
++            ret = false;
++            bool seen = false;
++            for (int j = 0; j < num_failed; j++) {
++                seen |= failed[j].sem == sync.sem;
++            }
++            if (!seen && num_failed < PL_ARRAY_SIZE(failed)) {
++                failed[num_failed++] = sync;
++            }
++        }
++    }
++    return ret;
++}
++
+@@ -415,0 +478 @@
++    cmd->ended = false;
+@@ -492 +555 @@
+-    if (!cmd)
++    if (!cmd) {
+@@ -493,0 +557 @@
++    }
+@@ -494,0 +559,4 @@
++    struct vk_cmd *flush[65];
++    int flush_count = 0;
++    struct vk_cmd *marker = NULL;
++    pl_vulkan_sem failed_dep = {0};
+@@ -499 +567,19 @@
+-    VK(vk->EndCommandBuffer(cmd->buf));
++    pl_mutex_lock(&vk->lock);
++    struct vk_timing_scope *scope = vk->timing_scope;
++    if (scope && !scope->invalidated) {
++        vk_cmd_dep_max(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, scope->start);
++        scope->crossed_queue_families |= pool->qf != vk->pool_graphics->qf;
++        int index = 0;
++        while (index < scope->num_commands &&
++               scope->commands[index].sem != cmd->sync.sem) {
++            index++;
++        }
++        if (index < scope->num_commands) {
++            scope->commands[index].value = cmd->sync.value;
++        } else if (scope->num_commands < PL_ARRAY_SIZE(scope->commands)) {
++            scope->commands[scope->num_commands++] = cmd->sync;
++        } else {
++            scope->overflow = true;
++        }
++    }
++    pl_mutex_unlock(&vk->lock);
+@@ -500,0 +587,35 @@
++    if (!cmd->ended) {
++        VK(vk->EndCommandBuffer(cmd->buf));
++        cmd->ended = true;
++    }
++
++    pl_mutex_lock(&vk->lock);
++    scope = vk->timing_scope;
++    if (scope && !scope->overflow && !scope->invalidated &&
++        scope->num_held < PL_ARRAY_SIZE(scope->held) &&
++        scope->num_commands < PL_ARRAY_SIZE(scope->commands)) {
++        scope->held[scope->num_held++] = cmd;
++        pl_mutex_unlock(&vk->lock);
++        return true;
++    }
++    if (scope && !scope->invalidated) {
++        scope->overflow = true;
++        scope->invalidated = true;
++        flush_count = scope->num_held;
++        for (int i = 0; i < flush_count; i++) {
++            flush[i] = scope->held[i];
++        }
++        scope->num_held = 0;
++        marker = scope->marker;
++        scope->marker = NULL;
++        failed_dep = scope->start;
++        flush[flush_count++] = cmd;
++        cmd = NULL;
++    }
++    pl_mutex_unlock(&vk->lock);
++    if (!cmd) {
++        bool marker_submitted = vk_cmd_submit(&marker);
++        return vk_timing_submit_commands(flush, flush_count, failed_dep,
++                                         !marker_submitted);
++    }
++
+@@ -525 +646 @@
+-        if (cmd->callbacks.num)
++        if (cmd->callbacks.num) {
+@@ -526,0 +648 @@
++        }
+@@ -529 +651 @@
+-    pl_assert(pool->sync[cmd->qindex].value == cmd->sync.value);
++    pl_assert(pool->sync[cmd->qindex].value >= cmd->sync.value);
+@@ -548,0 +671,25 @@
++void vk_timing_flush(struct vk_ctx *vk)
++{
++    pl_mutex_lock(&vk->lock);
++    struct vk_timing_scope *scope = vk->timing_scope;
++    if (scope) {
++        scope->invalidated = true;
++    }
++    int count = scope ? scope->num_held : 0;
++    struct vk_cmd *held[64];
++    for (int i = 0; i < count; i++) {
++        held[i] = scope->held[i];
++    }
++    if (scope) {
++        scope->num_held = 0;
++    }
++    struct vk_cmd *marker = scope ? scope->marker : NULL;
++    pl_vulkan_sem start = scope ? scope->start : (pl_vulkan_sem) {0};
++    if (scope) {
++        scope->marker = NULL;
++    }
++    pl_mutex_unlock(&vk->lock);
++    bool marker_submitted = vk_cmd_submit(&marker);
++    vk_timing_submit_commands(held, count, start, !marker_submitted);
++}
++
+@@ -550,0 +698,3 @@
++    if (timeout) {
++        vk_timing_flush(vk);
++    }
+--- a/src/vulkan/gpu.c
++++ b/src/vulkan/gpu.c
+@@ -20,0 +21,2 @@
++
++#include <math.h>
+@@ -827,0 +830,279 @@
++
++#define GPU_INTERVAL_SLOTS 4
++
++struct gpu_interval_slot {
++    uint64_t generation;
++    uint64_t frame_id;
++    bool ended;
++    bool submitted;
++    bool done;
++    bool reported;
++    bool valid;
++    bool crossed_queue_families;
++};
++
++struct pl_vulkan_gpu_interval_t {
++    pl_vulkan vulkan;
++    VkQueryPool qpool;
++    struct vk_timing_scope scope;
++    struct gpu_interval_slot slots[GPU_INTERVAL_SLOTS];
++    int read;
++    int write;
++    int count;
++    int active;
++    bool poisoned;
++};
++
++static void gpu_interval_done(void *priv, void *arg)
++{
++    (void) arg;
++    struct gpu_interval_slot *slot = priv;
++    slot->done = true;
++}
++
++pl_vulkan_gpu_interval pl_vulkan_gpu_interval_create(pl_vulkan vulkan)
++{
++    if (!vulkan || !vulkan->gpu) {
++        return NULL;
++    }
++
++    struct pl_vk *p = PL_PRIV(vulkan->gpu);
++    struct vk_ctx *vk = p->vk;
++    if (!vk->pool_graphics->props.timestampValidBits) {
++        return NULL;
++    }
++
++    pl_vulkan_gpu_interval interval = pl_zalloc_ptr(NULL, interval);
++    interval->vulkan = vulkan;
++    interval->active = -1;
++    VkQueryPoolCreateInfo qinfo = {
++        .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
++        .queryType = VK_QUERY_TYPE_TIMESTAMP,
++        .queryCount = GPU_INTERVAL_SLOTS * 2,
++    };
++    if (vk->CreateQueryPool(vk->dev, &qinfo, PL_VK_ALLOC, &interval->qpool) != VK_SUCCESS) {
++        pl_free(interval);
++        return NULL;
++    }
++    return interval;
++}
++
++void pl_vulkan_gpu_interval_destroy(pl_vulkan_gpu_interval *ptr)
++{
++    if (!ptr || !*ptr) {
++        return;
++    }
++
++    pl_vulkan_gpu_interval interval = *ptr;
++    if (interval->active >= 0) {
++        pl_vulkan_gpu_interval_end(interval);
++    }
++    pl_gpu_finish(interval->vulkan->gpu);
++    struct pl_vk *p = PL_PRIV(interval->vulkan->gpu);
++    struct vk_ctx *vk = p->vk;
++    vk->DestroyQueryPool(vk->dev, interval->qpool, PL_VK_ALLOC);
++    pl_free(interval);
++    *ptr = NULL;
++}
++
++bool pl_vulkan_gpu_interval_begin(pl_vulkan_gpu_interval interval,
++                                  uint64_t generation, uint64_t frame_id)
++{
++    if (!interval || interval->poisoned || interval->active >= 0 ||
++        interval->count == GPU_INTERVAL_SLOTS) {
++        return false;
++    }
++
++    struct pl_vk *p = PL_PRIV(interval->vulkan->gpu);
++    struct vk_ctx *vk = p->vk;
++    pl_mutex_lock(&p->recording);
++    if (vk->failed) {
++        pl_mutex_unlock(&p->recording);
++        return false;
++    }
++    pl_mutex_lock(&vk->lock);
++    bool scope_active = vk->timing_scope != NULL;
++    pl_mutex_unlock(&vk->lock);
++    if (scope_active) {
++        pl_mutex_unlock(&p->recording);
++        return false;
++    }
++    if (!vk_cmd_submit(&p->cmd)) {
++        pl_mutex_unlock(&p->recording);
++        return false;
++    }
++
++    int index = interval->write;
++    struct vk_cmd *cmd = vk_cmd_begin(vk->pool_graphics, "gpu_interval_begin");
++    if (!cmd) {
++        pl_mutex_unlock(&p->recording);
++        return false;
++    }
++    vk->CmdResetQueryPool(cmd->buf, interval->qpool, index * 2, 2);
++    vk->CmdWriteTimestamp(cmd->buf, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
++                          interval->qpool, index * 2);
++    pl_vulkan_sem start = cmd->sync;
++    VK(vk->EndCommandBuffer(cmd->buf));
++    cmd->ended = true;
++    interval->scope = (struct vk_timing_scope) {
++        .start = start,
++        .marker = cmd,
++    };
++    interval->slots[index] = (struct gpu_interval_slot) {
++        .generation = generation,
++        .frame_id = frame_id,
++    };
++    interval->active = index;
++    interval->write = (index + 1) % GPU_INTERVAL_SLOTS;
++    interval->count++;
++    pl_mutex_lock(&vk->lock);
++    vk->timing_scope = &interval->scope;
++    pl_mutex_unlock(&vk->lock);
++    pl_mutex_unlock(&p->recording);
++    return true;
++
++error:
++    vk->failed = true;
++    cmd->deps.num = 0;
++    cmd->sigs.num = 0;
++    cmd->callbacks.num = 0;
++    pl_mutex_lock(&vk->lock);
++    PL_ARRAY_APPEND(cmd->pool, cmd->pool->cmds, cmd);
++    pl_mutex_unlock(&vk->lock);
++    pl_mutex_unlock(&p->recording);
++    return false;
++}
++
++bool pl_vulkan_gpu_interval_end(pl_vulkan_gpu_interval interval)
++{
++    if (!interval || interval->active < 0) {
++        return false;
++    }
++
++    struct pl_vk *p = PL_PRIV(interval->vulkan->gpu);
++    struct vk_ctx *vk = p->vk;
++    pl_mutex_lock(&p->recording);
++    bool submitted = vk_cmd_submit(&p->cmd);
++    pl_mutex_lock(&vk->lock);
++    vk->timing_scope = NULL;
++    int held_count = interval->scope.num_held;
++    struct vk_cmd *held[PL_ARRAY_SIZE(interval->scope.held)];
++    pl_vulkan_sem start = interval->scope.start;
++    for (int i = 0; i < held_count; i++) {
++        held[i] = interval->scope.held[i];
++    }
++    interval->scope.num_held = 0;
++    pl_mutex_unlock(&vk->lock);
++
++    bool marker_submitted = vk_cmd_submit(&interval->scope.marker);
++    submitted &= marker_submitted;
++    submitted &= vk_timing_submit_commands(held, held_count, start, !marker_submitted);
++
++    int index = interval->active;
++    struct gpu_interval_slot *slot = &interval->slots[index];
++    slot->crossed_queue_families = interval->scope.crossed_queue_families;
++    slot->valid = submitted && !interval->scope.overflow && !interval->scope.invalidated;
++    if (!submitted || vk->failed) {
++        interval->poisoned = true;
++    }
++
++    if (!submitted) {
++        slot->submitted = false;
++        slot->ended = true;
++        interval->active = -1;
++        pl_mutex_unlock(&p->recording);
++        return false;
++    }
++
++    struct vk_cmd *cmd = vk_cmd_begin(vk->pool_graphics, "gpu_interval_end");
++    if (cmd) {
++        vk_cmd_dep_max(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, interval->scope.start);
++        for (int i = 0; i < interval->scope.num_commands; i++) {
++            vk_cmd_dep_max(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
++                           interval->scope.commands[i]);
++        }
++        vk->CmdWriteTimestamp(cmd->buf, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
++                              interval->qpool, index * 2 + 1);
++        vk_cmd_callback(cmd, gpu_interval_done, slot, NULL);
++        submitted &= vk_cmd_submit(&cmd);
++    } else {
++        submitted = false;
++    }
++
++    slot->valid &= submitted && !interval->scope.invalidated;
++    slot->submitted = submitted;
++    slot->ended = true;
++    interval->active = -1;
++    pl_mutex_unlock(&p->recording);
++    return submitted;
++}
++
++bool pl_vulkan_gpu_interval_poll(pl_vulkan_gpu_interval interval,
++                                 struct pl_vulkan_gpu_interval_result *result)
++{
++    if (!interval || !result || !interval->count) {
++        return false;
++    }
++
++    int index = interval->read;
++    struct gpu_interval_slot *slot = &interval->slots[index];
++    if (!slot->ended) {
++        return false;
++    }
++
++    struct pl_vk *p = PL_PRIV(interval->vulkan->gpu);
++    struct vk_ctx *vk = p->vk;
++    if (!slot->submitted) {
++        if (slot->reported) {
++            return false;
++        }
++        *result = (struct pl_vulkan_gpu_interval_result) {
++            .generation = slot->generation,
++            .frame_id = slot->frame_id,
++            .valid = false,
++            .crossed_queue_families = slot->crossed_queue_families,
++        };
++        slot->reported = true;
++        return true;
++    }
++
++    vk_poll_commands(vk, 0);
++    if (!slot->done) {
++        return false;
++    }
++    uint64_t timestamps[2] = {0};
++    VkResult status = vk->GetQueryPoolResults(vk->dev, interval->qpool,
++                                               index * 2, 2, sizeof(timestamps),
++                                               timestamps, sizeof(uint64_t),
++                                               VK_QUERY_RESULT_64_BIT);
++    if (status == VK_NOT_READY) {
++        return false;
++    }
++
++    *result = (struct pl_vulkan_gpu_interval_result) {
++        .generation = slot->generation,
++        .frame_id = slot->frame_id,
++        .valid = slot->valid && status == VK_SUCCESS,
++        .crossed_queue_families = slot->crossed_queue_families,
++    };
++    if (result->valid) {
++        unsigned bits = vk->pool_graphics->props.timestampValidBits;
++        if (!timestamps[0] || !timestamps[1] ||
++            (bits == 64 && timestamps[1] < timestamps[0])) {
++            result->valid = false;
++        }
++        uint64_t mask = bits == 64 ? UINT64_MAX : (1ull << bits) - 1;
++        uint64_t delta = (timestamps[1] - timestamps[0]) & mask;
++        long double duration = delta * (long double) vk->props.limits.timestampPeriod;
++        if (result->valid && isfinite(duration) && duration > 0 &&
++            duration < 18446744073709551616.0L) {
++            result->nanoseconds = duration;
++        } else {
++            result->valid = false;
++        }
++    }
++    slot->ended = false;
++    interval->read = (index + 1) % GPU_INTERVAL_SLOTS;
++    interval->count--;
++    return true;
++}
+diff -ruN a/src/vulkan/gpu_buf.c b/src/vulkan/gpu_buf.c
+--- a/src/vulkan/gpu_buf.c
++++ b/src/vulkan/gpu_buf.c
+@@ -404,0 +405 @@
++        vk_timing_flush(vk);

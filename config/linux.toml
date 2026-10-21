@@ -10,6 +10,14 @@ deps = [
   "opus",
   "sdl3",
   "miniupnpc",
+  "libdrm",
+  "libva",
+  "vulkan-headers",
+  "vulkan-loader",
+  "glslang",
+  "nv-codec-headers",
+  "ffmpeg",
+  "libplacebo",
 ]
 
 [toolchain]

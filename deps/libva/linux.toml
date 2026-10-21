@@ -1,0 +1,20 @@
+version = "2.24.1"
+url = "https://github.com/intel/libva/releases/download/{version}/libva-{version}.tar.bz2"
+sha256 = "eec6050b52876f229bd35e9df17cd31a06785e18e6f7990c445b584628483d67"
+kind = "meson"
+shared = true
+depends_on = ["libdrm"]
+
+[meson_options]
+disable_drm = false
+with_x11 = "no"
+with_glx = "no"
+with_wayland = "no"
+with_win32 = "no"
+enable_docs = false
+
+[arch.x86_64.meson_options]
+driverdir = "/usr/lib/x86_64-linux-gnu/dri:/usr/lib64/dri:/usr/lib/dri"
+
+[arch.aarch64.meson_options]
+driverdir = "/usr/lib/aarch64-linux-gnu/dri:/usr/lib64/dri:/usr/lib/dri"
