@@ -6,6 +6,7 @@ depends_on = ["openssl", "nghttp2"]
 shared = true
 
 [cmake_options]
+CMAKE_C_FLAGS = "-DNGHTTP2_STATICLIB"
 BUILD_STATIC_LIBS = "OFF"
 BUILD_CURL_EXE = "OFF"
 BUILD_LIBCURL_DOCS = "OFF"
