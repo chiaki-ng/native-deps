@@ -50,8 +50,8 @@ validate() {
   [ -z "$orphans" ] || die "pins not listed in config/$PLATFORM.toml deps:$orphans"
 
   for f in $(all_dep_names); do
-    dep_json "$f" | jq -e '(.version|type) == "string" and (.kind | IN("cmake","configure","openssl"))' \
-      >/dev/null || die "deps/$f/$PLATFORM.toml: needs string version and kind of cmake|configure|openssl"
+    dep_json "$f" | jq -e '(.version|type) == "string" and (.kind | IN("cmake","configure","openssl","meson"))' \
+      >/dev/null || die "deps/$f/$PLATFORM.toml: needs string version and kind of cmake|configure|openssl|meson"
     if dep_is_git "$f"; then
       dep_json "$f" | jq -e '(.repo|type) == "string" and (.ref|type) == "string"
                              and (has("url") or has("sha256") or has("file") | not)
@@ -75,6 +75,10 @@ validate() {
     if [ "$(dep_get "$f" '.kind')" = cmake ]; then
       dep_json "$f" | jq -e '(.cmake_options // {} | type) == "object"' >/dev/null \
         || die "deps/$f/$PLATFORM.toml: cmake_options must be a table"
+    fi
+    if [ "$(dep_get "$f" '.kind')" = meson ]; then
+      dep_json "$f" | jq -e '(.meson_options // {} | type) == "object"' >/dev/null \
+        || die "deps/$f/$PLATFORM.toml: meson_options must be a table"
     fi
     for d in $(dep_deps "$f"); do
       dep_exists "$d" || die "deps/$f/$PLATFORM.toml: depends on unknown dep '$d'"

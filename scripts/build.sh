@@ -85,6 +85,10 @@ write_build_info() { # write_build_info <name>
 }
 
 # Build in dependency order.
+CC=clang
+CXX=clang++
+MESON_SYSTEM=darwin
+case "$ARCH" in arm64) MESON_CPU_FAMILY=aarch64 ;; *) MESON_CPU_FAMILY=$ARCH ;; esac
 ARCH_FLAGS="-arch $ARCH $MIN_FLAG=$MIN -isysroot $SDK_PATH"
 ARCH_LDFLAGS="-arch $ARCH $MIN_FLAG=$MIN"
 [ "$TARGET" = macos ] || ARCH_LDFLAGS="$ARCH_LDFLAGS -isysroot $SDK_PATH"

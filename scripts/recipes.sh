@@ -116,6 +116,48 @@ recipe_openssl() { # recipe_openssl <name> <srcdir>
   make -C "$srcdir" install_sw
 }
 
+meson_list() { printf '%s\n' "$1" | tr ' ' '\n' | sed -e '/^$/d' -e "s/.*/'&'/" | paste -s -d, - | sed 's/,/, /g'; }
+
+meson_cross_file() {
+  local file=$1
+  {
+    printf '[binaries]\n'
+    printf "c = '%s'\ncpp = '%s'\nar = 'ar'\nstrip = 'strip'\npkg-config = 'pkg-config'\n" "$CC" "$CXX"
+    printf '\n[built-in options]\n'
+    printf 'c_args = [%s]\n' "$(meson_list "$ARCH_FLAGS $DEP_CPPFLAGS")"
+    printf 'cpp_args = [%s]\n' "$(meson_list "$ARCH_FLAGS $DEP_CPPFLAGS")"
+    printf 'c_link_args = [%s]\n' "$(meson_list "$ARCH_LDFLAGS $DEP_LDFLAGS")"
+    printf 'cpp_link_args = [%s]\n' "$(meson_list "$ARCH_LDFLAGS $DEP_LDFLAGS")"
+    printf "\n[host_machine]\nsystem = '%s'\ncpu_family = '%s'\ncpu = '%s'\nendian = 'little'\n" "$MESON_SYSTEM" "$MESON_CPU_FAMILY" "$ARCH"
+  } >"$file"
+}
+
+recipe_meson() { # recipe_meson <name> <srcdir>
+  local name=$1 srcdir=$2 b="$2/ci-build" opts kv linkage cross=""
+  opts=$({ dep_get "$name" '.meson_options // {} | to_entries[] | "\(.key)=\(.value | if type == "array" then join(",") else tostring end)"'; dep_target_meson_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
+  if [ "$(dep_get "$name" '.shared // false')" = true ]; then linkage=shared; else linkage=static; fi
+  if is_cross "$ARCH"; then
+    meson_cross_file "$srcdir/cross.ini"
+    cross="--cross-file $srcdir/cross.ini"
+  fi
+  env CC="$CC" CXX="$CXX" \
+    CFLAGS="$ARCH_FLAGS" CXXFLAGS="$ARCH_FLAGS" \
+    CPPFLAGS="$DEP_CPPFLAGS" \
+    LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS" \
+    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="${DEP_PKGCONFIG#:}" \
+    CMAKE_PREFIX_PATH="$DEP_PREFIX_PATH" \
+    meson setup "$b" "$srcdir" \
+    --prefix="$PREFIX" \
+    --libdir=lib \
+    --buildtype=release \
+    --wrap-mode=nodownload \
+    -Ddefault_library=$linkage \
+    -Db_staticpic=true \
+    $cross $opts
+  meson compile -C "$b" -j "$(njobs)"
+  meson install -C "$b"
+}
+
 build_dep() { # build_dep <name>; fetch, extract and build into $PREFIX
   local name=$1 srcdir source kind
   log "building $name for $ARCH $TARGET"
@@ -128,6 +170,7 @@ build_dep() { # build_dep <name>; fetch, extract and build into $PREFIX
     cmake) recipe_cmake "$name" "$srcdir" ;;
     configure) recipe_configure "$name" "$srcdir" ;;
     openssl) recipe_openssl "$name" "$srcdir" ;;
+    meson) recipe_meson "$name" "$srcdir" ;;
     *) die "$name: unknown kind '$kind'" ;;
   esac
 }

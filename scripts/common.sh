@@ -76,6 +76,9 @@ dep_target_flags() { dep_json "$1" | jq -r --arg t "$TARGET" '(.targets[$t].conf
 dep_target_cmake_options() {
   dep_json "$1" | jq -r --arg t "$TARGET" '.targets[$t].cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'
 }
+dep_target_meson_options() {
+  dep_json "$1" | jq -r --arg t "$TARGET" '.targets[$t].meson_options // {} | to_entries[] | "\(.key)=\(.value | if type == "array" then join(",") else tostring end)"'
+}
 
 # Substitute {version}, {version_us} (dots -> underscores) and {name} in a URL template.
 resolve_url() { # resolve_url <template> <version> <name>
