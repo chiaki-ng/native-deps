@@ -1,0 +1,10 @@
+version = "1.70.0"
+url = "https://github.com/nghttp2/nghttp2/releases/download/v{version}/nghttp2-{version}.tar.xz"
+sha256 = "e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2"
+kind = "cmake"
+
+[cmake_options]
+ENABLE_LIB_ONLY = "ON"
+BUILD_STATIC_LIBS = "ON"
+ENABLE_DOC = "OFF"
+BUILD_TESTING = "OFF"

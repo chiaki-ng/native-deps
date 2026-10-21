@@ -1,0 +1,52 @@
+architectures = ["x86_64", "aarch64"]
+primary_target = "linux"
+
+deps = [
+  "openssl",
+  "nghttp2",
+  "abseil",
+  "protobuf",
+  "curl",
+  "opus",
+  "sdl3",
+  "miniupnpc",
+]
+
+[toolchain]
+image = "docker.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
+glibc = "2.36"
+packages = [
+  "build-essential",
+  "cmake",
+  "pkg-config",
+  "meson",
+  "ninja-build",
+  "nasm",
+  "python3",
+  "perl",
+  "patch",
+  "git",
+  "ca-certificates",
+  "curl",
+  "jq",
+  "rsync",
+  "xz-utils",
+  "bzip2",
+  "zstd",
+  "libx11-dev",
+  "libx11-xcb-dev",
+  "libxcb1-dev",
+  "libxrandr-dev",
+  "libwayland-dev",
+  "libasound2-dev",
+  "libpulse-dev",
+  "libpipewire-0.3-dev",
+  "libudev-dev",
+  "libdbus-1-dev",
+]
+
+[toolchain.runners]
+x86_64 = "ubuntu-24.04"
+aarch64 = "ubuntu-24.04-arm"
+
+[targets.linux]

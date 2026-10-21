@@ -1,0 +1,28 @@
+version = "8.22.0"
+url = "https://curl.se/download/curl-{version}.tar.bz2"
+sha256 = "5d956a6a22b3c279f50c421ee5d3c9e9d660cb6f115dcf881b579e952130549c"
+kind = "cmake"
+depends_on = ["openssl", "nghttp2"]
+shared = true
+
+[cmake_options]
+BUILD_STATIC_LIBS = "OFF"
+BUILD_CURL_EXE = "OFF"
+BUILD_LIBCURL_DOCS = "OFF"
+BUILD_MISC_DOCS = "OFF"
+CURL_USE_OPENSSL = "ON"
+CURL_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+CURL_CA_PATH = "/etc/ssl/certs"
+CURL_CA_FALLBACK = "OFF"
+CURL_USE_LIBPSL = "OFF"
+CURL_USE_LIBSSH2 = "OFF"
+CURL_USE_LIBSSH = "OFF"
+CURL_USE_GSSAPI = "OFF"
+USE_NGHTTP2 = "ON"
+USE_NGTCP2 = "OFF"
+USE_LIBIDN2 = "OFF"
+CURL_BROTLI = "OFF"
+CURL_ZSTD = "OFF"
+CURL_ZLIB = "OFF"
+CURL_DISABLE_LDAP = "ON"
+CURL_DISABLE_LDAPS = "ON"
