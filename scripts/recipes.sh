@@ -121,19 +121,18 @@ meson_cross_file() {
 }
 
 recipe_meson() { # recipe_meson <name> <srcdir>
-  local name=$1 srcdir=$2 b="$2/ci-build" opts kv linkage cross=""
+  local name=$1 srcdir=$2 b="$2/ci-build" opts kv linkage cross="" menv
   opts=$({ dep_get "$name" '.meson_options // {} | to_entries[] | "\(.key)=\(.value | if type == "array" then join(",") else tostring end)"'; dep_target_meson_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$kv"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then linkage=shared; else linkage=static; fi
   if is_cross "$ARCH"; then
     meson_cross_file "$srcdir/cross.ini"
     cross="--cross-file $srcdir/cross.ini"
   fi
-  env CC="$CC" CXX="$CXX" \
-    CFLAGS="$ARCH_FLAGS" CXXFLAGS="$ARCH_FLAGS" \
-    CPPFLAGS="$DEP_CPPFLAGS" \
-    LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS" \
-    PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="$(pkgconfig_libdir)" \
-    CMAKE_PREFIX_PATH="$DEP_PREFIX_PATH" \
+  menv=(CC="$CC" CXX="$CXX" PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="$(pkgconfig_libdir)" CMAKE_PREFIX_PATH="$DEP_PREFIX_PATH")
+  [ -z "${ARCH_FLAGS// /}" ] || menv+=(CFLAGS="$ARCH_FLAGS" CXXFLAGS="$ARCH_FLAGS")
+  [ -z "${DEP_CPPFLAGS// /}" ] || menv+=(CPPFLAGS="$DEP_CPPFLAGS")
+  [ -z "${ARCH_LDFLAGS// /}${DEP_LDFLAGS// /}" ] || menv+=(LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS")
+  env "${menv[@]}" \
     meson setup "$b" "$srcdir" \
     --prefix="$PREFIX" \
     --libdir=lib \
