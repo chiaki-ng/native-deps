@@ -131,6 +131,7 @@ recipe_meson() { # recipe_meson <name> <srcdir>
   menv=(CC="$CC" CXX="$CXX" PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="$(pkgconfig_libdir)" CMAKE_PREFIX_PATH="$DEP_PREFIX_PATH")
   [ -z "${ARCH_FLAGS// /}" ] || menv+=(CFLAGS="$ARCH_FLAGS" CXXFLAGS="$ARCH_FLAGS")
   [ -z "${DEP_CPPFLAGS// /}" ] || menv+=(CPPFLAGS="$DEP_CPPFLAGS")
+  [ -z "$DEP_LIBDIRS" ] || menv+=(LIBRARY_PATH="${DEP_LIBDIRS#:}${LIBRARY_PATH:+:$LIBRARY_PATH}")
   [ -z "${ARCH_LDFLAGS// /}${DEP_LDFLAGS// /}" ] || menv+=(LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS")
   env "${menv[@]}" \
     meson setup "$b" "$srcdir" \

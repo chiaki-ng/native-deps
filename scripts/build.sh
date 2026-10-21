@@ -84,12 +84,14 @@ while IFS= read -r name; do
   DEP_CPPFLAGS=""
   DEP_LDFLAGS=""
   DEP_PKGCONFIG=""
+  DEP_LIBDIRS=""
   DEP_PREFIX_PATH=""
   for d in $(dep_closure "$name"); do
     [ -f "$POOL/$d/BUILD-INFO" ] || die "$name: dependency '$d' has not been built (cycle or ordering bug)"
     DEP_CPPFLAGS="$DEP_CPPFLAGS -I$POOL/$d/include"
     DEP_LDFLAGS="$DEP_LDFLAGS $(toolchain_dep_ldflags "$POOL/$d/lib")"
     DEP_PKGCONFIG="$DEP_PKGCONFIG:$POOL/$d/lib/pkgconfig"
+    DEP_LIBDIRS="$DEP_LIBDIRS:$POOL/$d/lib"
     if [ -n "$DEP_PREFIX_PATH" ]; then DEP_PREFIX_PATH="$DEP_PREFIX_PATH:$POOL/$d"; else DEP_PREFIX_PATH="$POOL/$d"; fi
   done
 
