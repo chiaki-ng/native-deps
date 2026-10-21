@@ -1,0 +1,11 @@
+version = "1.4.365"
+url = "https://github.com/KhronosGroup/Vulkan-Loader/archive/refs/tags/v{version}.tar.gz"
+file = "Vulkan-Loader-{version}.tar.gz"
+sha256 = "df0358f57c1936e4abd262a7327ba1f80ffb424dbbdcbcb01bb9288511f31eef"
+kind = "cmake"
+shared = true
+depends_on = ["vulkan-headers"]
+
+[cmake_options]
+BUILD_TESTS = "OFF"
+BUILD_WERROR = "OFF"
