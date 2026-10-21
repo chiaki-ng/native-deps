@@ -12,7 +12,7 @@
 # Expand tokens in manifest flags: @ARCH@ -> target arch, @POOL@ -> dep pool root,
 # @SDK@ -> target SDK path, @MINFLAG@ -> the target's minimum-OS compiler flag.
 expand_tokens() {
-  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g" -e "s|@HOSTBUILD@|${HOST_BUILD:-}|g"
+  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g" -e "s|@HOSTBUILD@|${HOST_BUILD:-}|g" -e "s|@PREFIX@|$PREFIX|g"
 }
 
 pkgconfig_libdir() { printf '%s' "${DEP_PKGCONFIG#:}${HOST_PKGCONFIG:+:$HOST_PKGCONFIG}" | sed 's/^://'; }
@@ -146,6 +146,14 @@ recipe_meson() { # recipe_meson <name> <srcdir>
   meson install -C "$b"
 }
 
+recipe_make() { # recipe_make <name> <srcdir>
+  local name=$1 srcdir=$2 flags="" f
+  while IFS= read -r f; do [ -z "$f" ] || flags="$flags$(expand_tokens "$f") "; done \
+    <<<"$(dep_get "$name" '(.make_flags // [])[]')"
+  env CC="$CC" CXX="$CXX" make -C "$srcdir" -j "$(njobs)" $flags
+  env CC="$CC" CXX="$CXX" make -C "$srcdir" $flags install
+}
+
 build_dep() { # build_dep <name>; fetch, extract and build into $PREFIX
   local name=$1 srcdir source kind
   log "building $name for $ARCH $TARGET"
@@ -159,6 +167,7 @@ build_dep() { # build_dep <name>; fetch, extract and build into $PREFIX
     configure) recipe_configure "$name" "$srcdir" ;;
     openssl) recipe_openssl "$name" "$srcdir" ;;
     meson) recipe_meson "$name" "$srcdir" ;;
+    make) recipe_make "$name" "$srcdir" ;;
     *) die "$name: unknown kind '$kind'" ;;
   esac
 }
