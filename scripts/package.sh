@@ -54,6 +54,8 @@ for target in $(all_target_names); do
     [ -f "$info" ] || die "pool entry '$name' ($target) has no BUILD-INFO — malformed artifact?"
     rsync -a "${d%/}" "$dest/"
     rm -rf "$dest/$name/share/man" "$dest/$name/share/doc"
+    find "$dest/$name/bin" -type f -exec chmod u+x,g+x,o+x {} + 2>/dev/null || true
+    find "$dest/$name/lib" -type f \( -name '*.so' -o -name '*.so.*' -o -name '*.dylib' -o -name '*.dll' \) -exec chmod u+x,g+x,o+x {} + 2>/dev/null || true
     [ "$target" != "$primary" ] || roots="$roots $name"
     built=$((built + 1))
   done
