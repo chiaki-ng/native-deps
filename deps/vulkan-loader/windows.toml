@@ -7,5 +7,6 @@ shared = true
 depends_on = ["vulkan-headers"]
 
 [cmake_options]
+CMAKE_INSTALL_INCLUDEDIR = "@POOL@/vulkan-headers/include"
 BUILD_TESTS = "OFF"
 BUILD_WERROR = "OFF"
