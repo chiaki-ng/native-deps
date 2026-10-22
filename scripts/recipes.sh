@@ -62,8 +62,9 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
 }
 
 recipe_configure() { # recipe_configure <name> <srcdir>
-  local name=$1 srcdir=$2 b="$2/ci-build" flags="" f hostarg="" crossflags="" linkage
-  while IFS= read -r f; do flags="$flags$(expand_tokens "$f") "; done \
+  local name=$1 srcdir=$2 b="$2/ci-build" f hostarg="" linkage
+  local flags=() crossflags=()
+  while IFS= read -r f; do [ -z "$f" ] || flags+=("$(expand_tokens "$f")"); done \
     <<<"$(dep_get "$name" '(.configure_flags // [])[]'; dep_target_flags "$name")"
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then
     linkage="--enable-shared --disable-static"
@@ -72,7 +73,7 @@ recipe_configure() { # recipe_configure <name> <srcdir>
   fi
   if is_cross "$ARCH"; then
     [ "$(dep_get "$name" '.host_flag == false')" = true ] || hostarg="--host=$HOST_TRIPLE"
-    while IFS= read -r f; do crossflags="$crossflags$(expand_tokens "$f") "; done \
+    while IFS= read -r f; do [ -z "$f" ] || crossflags+=("$(expand_tokens "$f")"); done \
       <<<"$(dep_get "$name" '(.cross_configure_flags // [])[]')"
   fi
   mkdir -p "$b"
@@ -84,7 +85,7 @@ recipe_configure() { # recipe_configure <name> <srcdir>
       LDFLAGS="$ARCH_LDFLAGS $DEP_LDFLAGS" \
       PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" \
       "$srcdir/configure" \
-      --prefix="$PREFIX" $linkage $hostarg $flags $crossflags
+      --prefix="$PREFIX" $linkage $hostarg ${flags[@]+"${flags[@]}"} ${crossflags[@]+"${crossflags[@]}"}
   )
   make -C "$b" -j "$(njobs)"
   make -C "$b" install
