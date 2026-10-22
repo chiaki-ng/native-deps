@@ -1,0 +1,42 @@
+architectures = ["aarch64"]
+primary_target = "nx"
+
+deps = [
+  "nghttp2",
+  "curl",
+  "simdutf",
+  "ffmpeg",
+]
+
+[toolchain]
+image = "docker.io/devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282"
+gcc = "16"
+packages = [
+  "make",
+  "cmake",
+  "ninja-build",
+  "pkg-config",
+  "python3",
+  "perl",
+  "patch",
+  "git",
+  "ca-certificates",
+  "curl",
+  "jq",
+  "rsync",
+  "xz-utils",
+  "bzip2",
+  "zstd",
+]
+dkp_packages = [
+  "devkitA64",
+  "switch-dev",
+  "switch-cmake",
+  "switch-pkg-config",
+  "dkp-toolchain-vars",
+]
+
+[toolchain.runners]
+aarch64 = "ubuntu-24.04"
+
+[targets.nx]

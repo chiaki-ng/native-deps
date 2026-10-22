@@ -29,7 +29,7 @@ inputs:
     required: false
     default: ''
   platform:
-    description: platform whose config and pins to build (darwin, linux or windows)
+    description: platform whose config and pins to build (darwin, linux, windows or nx)
     required: false
     default: darwin
 runs:

@@ -1,0 +1,37 @@
+version = "9.0.1-nvtegra"
+repo = "https://github.com/xlanor/FFmpeg.git"
+ref = "ffmpeg-9.0.1"
+commit = "17cce46d05feba9ae941d8b4ed49336bfcbf8924"
+kind = "configure"
+host_flag = false
+configure_flags = [
+  "--enable-gpl",
+  "--enable-version3",
+  "--cross-prefix=aarch64-none-elf-",
+  "--enable-cross-compile",
+  "--arch=aarch64",
+  "--cpu=cortex-a57",
+  "--target-os=horizon",
+  "--enable-pic",
+  "--extra-cflags=-D__SWITCH__ -D_GNU_SOURCE -O2 -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec",
+  "--extra-cxxflags=-D__SWITCH__ -D_GNU_SOURCE -O2 -march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec",
+  "--extra-ldflags=-fPIE -L/opt/devkitpro/portlibs/switch/lib -L/opt/devkitpro/libnx/lib",
+  "--disable-runtime-cpudetect",
+  "--disable-programs",
+  "--disable-debug",
+  "--disable-doc",
+  "--enable-asm",
+  "--enable-neon",
+  "--disable-autodetect",
+  "--disable-everything",
+  "--disable-avdevice",
+  "--disable-encoders",
+  "--disable-muxers",
+  "--enable-decoder=h264,hevc",
+  "--enable-hwaccel=h264_nvtegra,hevc_nvtegra",
+  "--enable-parser=h264,hevc",
+  "--enable-swscale",
+  "--enable-swresample",
+  "--disable-network",
+  "--enable-nvtegra",
+]

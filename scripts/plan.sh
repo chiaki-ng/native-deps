@@ -111,6 +111,11 @@ if [ "${1:-}" = "--packages" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "--dkp-packages" ]; then
+  config_get '(.config.toolchain.dkp_packages // [])[]'
+  exit 0
+fi
+
 if [ "${1:-}" = "--image" ]; then
   config_get '.config.toolchain.image // empty'
   exit 0

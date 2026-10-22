@@ -1,0 +1,21 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2107,6 +2107,7 @@
+ curl_add_if("wolfSSL"          _ssl_enabled AND USE_WOLFSSL)
+ curl_add_if("GnuTLS"           _ssl_enabled AND USE_GNUTLS)
+ curl_add_if("Rustls"           _ssl_enabled AND USE_RUSTLS)
++curl_add_if("libnx"            _ssl_enabled AND USE_LIBNX)
+ 
+ if(_items)
+   list(SORT _items CASE INSENSITIVE)
+--- a/lib/curl_config-cmake.h.in
++++ b/lib/curl_config-cmake.h.in
+@@ -666,6 +666,8 @@
+ 
+ /* if mbedTLS <4 has the mbedtls_des_crypt_ecb function. */
+ #cmakedefine HAVE_MBEDTLS_DES_CRYPT_ECB 1
++
++#cmakedefine USE_LIBNX 1
+ 
+ /* if Rustls is enabled */
+ #cmakedefine USE_RUSTLS 1
