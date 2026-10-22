@@ -68,6 +68,8 @@ jobs:
       revision: ${{ steps.plan.outputs.revision }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - id: plan
         env:
           ONLY: ${{ inputs.only }}
@@ -84,6 +86,8 @@ jobs:
     runs-on: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-dep
         with:
           name: ${{ matrix.name }}
@@ -102,6 +106,8 @@ jobs:
         arch: ${{ fromJSON(needs.plan.outputs.architectures) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           pattern: pool-${{ matrix.arch }}*
@@ -136,6 +142,8 @@ jobs:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Release tag must live on main
         run: |
           git fetch --quiet origin main

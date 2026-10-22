@@ -22,6 +22,8 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - id: plan
         run: ./scripts/plan.sh
 
@@ -33,6 +35,8 @@ jobs:
     runs-on: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/build-dep
         with:
           name: ${{ matrix.name }}
