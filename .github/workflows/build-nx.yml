@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: build-nx-${{ github.ref }}
@@ -65,6 +66,9 @@ jobs:
     runs-on: ${{ matrix.image }}
     container:
       image: ${{ matrix.container }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     defaults:
       run:
         shell: bash
