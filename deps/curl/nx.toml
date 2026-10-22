@@ -1,10 +1,9 @@
 version = "8.21.0-libnx"
 repo = "https://github.com/xlanor/curl.git"
 ref = "libnx-vtls"
-commit = "98655680ee8860fd010761125f4fb58da5c4cf39"
+commit = "763da99230624df88d0a6c867599d4e8ee945413"
 kind = "cmake"
 depends_on = ["nghttp2"]
-patches = ["0001-cmake-define-use-libnx.patch"]
 
 [cmake_options]
 BUILD_SHARED_LIBS = "OFF"
