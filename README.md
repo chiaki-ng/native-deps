@@ -18,7 +18,7 @@ For the sake of build scripts, please keep tags as follows:
 
 ## Platforms
 
-`PLATFORM=darwin|linux|windows|nx` picks `config/<platform>.toml`, the pins at `deps/<name>/<platform>.toml` and `scripts/toolchain-<platform>.sh`. darwin builds on macOS with Xcode 26; linux builds in the pinned GCC 16 image (Debian 13, glibc 2.41); windows builds in an MSYS2 UCRT64 shell; nx cross-builds static libraries for the Nintendo Switch in the pinned devkitA64 image, updated to GCC 16. `scripts/plan.sh --packages` prints the host packages a platform expects, `--dkp-packages` the devkitPro packages nx adds, and `--image` the container image.
+`PLATFORM=darwin|linux|windows|nx` picks `config/<platform>.toml`, the pins at `deps/<name>/<platform>.toml` and `scripts/toolchain-<platform>.sh`. darwin builds on macOS with Xcode 26; linux builds in the pinned GCC 16 image (Debian 13, glibc 2.41); windows builds in an MSYS2 UCRT64 shell; nx cross-builds static libraries for the Nintendo Switch in `ghcr.io/chiaki-ng/devkita64`, devkitA64 with GCC 16 from [chiaki-ng/dockerfiles](https://github.com/chiaki-ng/dockerfiles), so CI never talks to devkitPro's package server. `scripts/plan.sh --packages` prints the host packages a platform expects, and `--image` the container image.
 
 ## Pins
 

@@ -82,8 +82,6 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           apt-get install -y --no-install-recommends $(./scripts/plan.sh --packages)
-          dkp-pacman -Syu --noconfirm
-          dkp-pacman -S --noconfirm --needed $(./scripts/plan.sh --dkp-packages)
       - uses: ./.github/actions/build-dep
         with:
           name: ${{ matrix.name }}

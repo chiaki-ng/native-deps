@@ -4,9 +4,8 @@ toolchain_architectures() { printf '%s\n' aarch64; }
 
 toolchain_check_config() {
   jq -e '.config.toolchain | (.image | type) == "string" and (.gcc | type) == "string"
-           and (.packages | type) == "array" and (.packages | all(type == "string"))
-           and (.dkp_packages | type) == "array" and (.dkp_packages | all(type == "string"))' \
-    "$(_manifest_json)" >/dev/null || die "config/$PLATFORM.toml: [toolchain] needs string image and gcc and packages and dkp_packages lists"
+           and (.packages | type) == "array" and (.packages | all(type == "string"))' \
+    "$(_manifest_json)" >/dev/null || die "config/$PLATFORM.toml: [toolchain] needs string image and gcc and a packages list"
   config_get '.config.toolchain.gcc' | grep -qE '^[0-9]+$' \
     || die "config/$PLATFORM.toml: toolchain.gcc must be a major version like 16"
 }
@@ -32,7 +31,7 @@ toolchain_setup() {
   [ -x "$(toolchain_gcc)" ] || die "aarch64-none-elf-gcc not found in $bin"
   wanted_gcc=$(config_get '.config.toolchain.gcc')
   [ "$("$(toolchain_gcc)" -dumpversion | cut -d. -f1)" = "$wanted_gcc" ] \
-    || die "devkitA64 gcc $("$(toolchain_gcc)" -dumpfullversion) found but the pin is gcc $wanted_gcc; update devkitA64 with dkp-pacman"
+    || die "devkitA64 gcc $("$(toolchain_gcc)" -dumpfullversion) found but the pin is gcc $wanted_gcc; build inside $(config_get '.config.toolchain.image')"
 
   MIN=""
   SDK_NAME=""
