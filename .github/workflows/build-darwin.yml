@@ -15,7 +15,20 @@ name: build-darwin
 on:
   push:
     branches: [main]
-    paths: ['deps/**', 'config/**', 'scripts/**', '.github/**', 'Makefile']
+    paths:
+      - 'deps/*/darwin.toml'
+      - 'config/darwin.toml'
+      - 'scripts/toolchain-darwin.sh'
+      - '.github/workflows/build-darwin.yml'
+      - 'deps/*/patches/**'
+      - 'scripts/build.sh'
+      - 'scripts/common.sh'
+      - 'scripts/recipes.sh'
+      - 'scripts/plan.sh'
+      - 'scripts/package.sh'
+      - 'scripts/publish-release.sh'
+      - 'scripts/toml2json.py'
+      - '.github/actions/**'
   release:
     types: [published]
   workflow_dispatch:
