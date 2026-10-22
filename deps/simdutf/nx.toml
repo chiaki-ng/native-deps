@@ -1,5 +1,6 @@
 version = "9.2.1"
 url = "https://github.com/simdutf/simdutf/archive/refs/tags/v{version}.tar.gz"
+file = "simdutf-{version}.tar.gz"
 sha256 = "582f9d0dcf578f6d4766fa29ea12a7f2f02bd3c6ad9e0cf35a8e0ec8478eba4b"
 kind = "cmake"
 patches = ["0001-c-api-keep-cxx-char-types.patch"]
