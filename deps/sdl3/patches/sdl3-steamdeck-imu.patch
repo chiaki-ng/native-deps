@@ -1,0 +1,59 @@
+--- a/src/joystick/hidapi/SDL_hidapi_steamdeck.c
++++ b/src/joystick/hidapi/SDL_hidapi_steamdeck.c
+@@ -85,6 +85,7 @@
+     Uint64 sensor_timestamp_ns;
+     Uint64 last_button_state;
+     Uint8 watchdog_counter;
++    bool sensors_enabled;
+ 
+     bool left_touch_down;
+     float left_touch_x;
+@@ -130,6 +131,26 @@
+     return true;
+ }
+ 
++static bool SetDeckImuMode(SDL_hid_device *dev, bool enabled)
++{
++    int rc;
++    Uint8 buffer[HID_FEATURE_REPORT_BYTES + 1] = { 0 };
++    FeatureReportMsg *msg = (FeatureReportMsg *)(buffer + 1);
++
++    msg->header.type = ID_SET_SETTINGS_VALUES;
++    msg->header.length = 1 * sizeof(ControllerSetting);
++    msg->payload.setSettingsValues.settings[0].settingNum = SETTING_IMU_MODE;
++    msg->payload.setSettingsValues.settings[0].settingValue = enabled ? (SETTING_GYRO_MODE_SEND_RAW_ACCEL | SETTING_GYRO_MODE_SEND_RAW_GYRO) : SETTING_GYRO_MODE_OFF;
++
++    rc = SDL_hid_send_feature_report(dev, buffer, sizeof(buffer));
++    if (rc != sizeof(buffer))
++        return false;
++
++    SDL_hid_get_feature_report(dev, buffer, sizeof(buffer));
++
++    return true;
++}
++
+ static bool FeedDeckLizardWatchdog(SDL_hid_device *dev)
+ {
+     int rc;
+@@ -382,6 +403,8 @@
+         ctx->watchdog_counter = 0;
+         if (!FeedDeckLizardWatchdog(device->dev))
+             return false;
++        if (ctx->sensors_enabled)
++            SetDeckImuMode(device->dev, true);
+     }
+ 
+     SDL_zeroa(data);
+@@ -467,8 +490,10 @@
+ 
+ static bool HIDAPI_DriverSteamDeck_SetSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
+ {
+-    // On steam deck, sensors are enabled by default. Nothing to do here.
+-    return true;
++    SDL_DriverSteamDeck_Context *ctx = (SDL_DriverSteamDeck_Context *)device->context;
++
++    ctx->sensors_enabled = enabled;
++    return SetDeckImuMode(device->dev, enabled);
+ }
+ 
+ static void HIDAPI_DriverSteamDeck_CloseJoystick(SDL_HIDAPI_Device *device, SDL_Joystick *joystick)

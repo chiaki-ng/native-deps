@@ -1,0 +1,81 @@
+--- a/src/joystick/hidapi/SDL_hidapi_ps5.c
++++ b/src/joystick/hidapi/SDL_hidapi_ps5.c
+@@ -272,6 +272,7 @@
+         PS5StatePacket_t full_state;
+         Uint8 data[64];
+     } last_state;
++    Sint64 chiaki_trigger_state;
+ } SDL_DriverPS5_Context;
+ 
+ static bool HIDAPI_DriverPS5_InternalSendJoystickEffect(SDL_DriverPS5_Context *ctx, const void *effect, int size, bool application_usage);
+@@ -1492,11 +1493,70 @@
+         data[1] = HIDAPI_DriverPS5_ApplyCalibrationData(ctx, 4, LOAD16(packet->rgucAccelY[0], packet->rgucAccelY[1]));
+         data[2] = HIDAPI_DriverPS5_ApplyCalibrationData(ctx, 5, LOAD16(packet->rgucAccelZ[0], packet->rgucAccelZ[1]));
+         SDL_SendJoystickSensor(timestamp, joystick, SDL_SENSOR_ACCEL, sensor_timestamp, data, 3);
++    }
++}
++
++static Uint8 HIDAPI_DriverPS5_ChiakiTriggerState(Uint8 effect, Uint8 status, Uint8 analog)
++{
++    Uint8 phase = status & 0xF0;
++
++    switch (effect) {
++    case 1:
++    case 4:
++        if (phase == 0x00) {
++            return 1;
++        }
++        if (phase == 0x10) {
++            return analog ? 2 : 1;
++        }
++        return 0;
++    case 2:
++        if (phase == 0x00) {
++            return 3;
++        }
++        if (phase == 0x10) {
++            return 4;
++        }
++        if (phase == 0x20) {
++            return 5;
++        }
++        return 0;
++    case 3:
++        if (phase == 0x00) {
++            return 6;
++        }
++        if (phase == 0x10) {
++            return 7;
++        }
++        return 0;
++    case 15:
++        return 0xFF;
++    default:
++        return 0;
+     }
+ }
+ 
++static void HIDAPI_DriverPS5_ChiakiPublishTriggerState(SDL_Joystick *joystick, SDL_DriverPS5_Context *ctx, PS5StatePacket_t *packet)
++{
++    Sint64 state;
++
++    if (ctx->device->vendor_id != 0x054c ||
++        (ctx->device->product_id != 0x0ce6 && ctx->device->product_id != 0x0df2)) {
++        return;
++    }
++    state = 0x10000 |
++        HIDAPI_DriverPS5_ChiakiTriggerState(packet->rgucUnknown1[7] >> 4, packet->rgucUnknown1[2], packet->ucTriggerLeft) |
++        ((Sint64)HIDAPI_DriverPS5_ChiakiTriggerState(packet->rgucUnknown1[7] & 0x0F, packet->rgucUnknown1[1], packet->ucTriggerRight) << 8);
++    if (state != ctx->chiaki_trigger_state) {
++        ctx->chiaki_trigger_state = state;
++        SDL_SetNumberProperty(SDL_GetJoystickProperties(joystick), "SDL.joystick.chiaki.trigger_state", state);
++    }
++}
++
+ static void HIDAPI_DriverPS5_HandleStatePacket(SDL_Joystick *joystick, SDL_hid_device *dev, SDL_DriverPS5_Context *ctx, PS5StatePacket_t *packet, Uint64 timestamp)
+ {
++    HIDAPI_DriverPS5_ChiakiPublishTriggerState(joystick, ctx, packet);
++
+     static const float TOUCHPAD_SCALEX = 5.20833333e-4f; // 1.0f / 1920
+     static const float TOUCHPAD_SCALEY = 9.34579439e-4f; // 1.0f / 1070
+     bool touchpad_down;
