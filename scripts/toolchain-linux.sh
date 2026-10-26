@@ -56,7 +56,6 @@ toolchain_cross() { return 1; }
 
 toolchain_cmake_args() { :; }
 
-toolchain_host_cmake_args() { :; }
 
 toolchain_meson_args() { printf -- '-Db_staticpic=true'; }
 

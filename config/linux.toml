@@ -4,8 +4,6 @@ primary_target = "linux"
 deps = [
   "openssl",
   "nghttp2",
-  "abseil",
-  "protobuf",
   "curl",
   "opus",
   "sdl3",

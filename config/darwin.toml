@@ -13,8 +13,6 @@ primary_target = "macos"
 deps = [
   "openssl",
   "nghttp2",
-  "abseil",
-  "protobuf",
   "curl",
   "ffmpeg",
   "opus",

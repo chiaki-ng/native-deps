@@ -49,7 +49,6 @@ toolchain_cross() { return 1; }
 
 toolchain_cmake_args() { printf -- '-G Ninja'; }
 
-toolchain_host_cmake_args() { :; }
 
 toolchain_meson_args() { :; }
 

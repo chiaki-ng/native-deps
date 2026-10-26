@@ -55,7 +55,6 @@ toolchain_cmake_args() {
   printf -- '-G Ninja -DCMAKE_TOOLCHAIN_FILE=%s/cmake/Switch.cmake -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH' "${DEVKITPRO:-/opt/devkitpro}"
 }
 
-toolchain_host_cmake_args() { :; }
 
 toolchain_meson_args() { :; }
 

@@ -82,8 +82,8 @@ validate() {
       dep_json "$f" | jq -e '(.cmake_options // {} | type) == "object"' >/dev/null \
         || die "deps/$f/$PLATFORM.toml: cmake_options must be a table"
     fi
-    dep_json "$f" | jq -e '[.configure_flags, .cross_configure_flags, .make_flags, .host_cmake_targets] | all(. == null or (type == "array" and all(type == "string")))' >/dev/null \
-      || die "deps/$f/$PLATFORM.toml: configure_flags, cross_configure_flags, make_flags and host_cmake_targets must be lists of strings"
+    dep_json "$f" | jq -e '[.configure_flags, .cross_configure_flags, .make_flags] | all(. == null or (type == "array" and all(type == "string")))' >/dev/null \
+      || die "deps/$f/$PLATFORM.toml: configure_flags, cross_configure_flags and make_flags must be lists of strings"
     if [ "$(dep_get "$f" '.kind')" = meson ]; then
       dep_json "$f" | jq -e '(.meson_options // {} | type) == "object"' >/dev/null \
         || die "deps/$f/$PLATFORM.toml: meson_options must be a table"

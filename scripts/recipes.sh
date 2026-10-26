@@ -12,37 +12,17 @@
 # Expand tokens in manifest flags: @ARCH@ -> target arch, @POOL@ -> dep pool root,
 # @SDK@ -> target SDK path, @MINFLAG@ -> the target's minimum-OS compiler flag.
 expand_tokens() {
-  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g" -e "s|@HOSTBUILD@|${HOST_BUILD:-}|g" -e "s|@PREFIX@|$PREFIX|g"
+  printf '%s' "$1" | sed -e "s/@ARCH@/$ARCH/g" -e "s|@POOL@|$POOL|g" -e "s|@SDK@|$SDK_PATH|g" -e "s|@MINFLAG@|$MIN_FLAG=$MIN|g" -e "s|@PREFIX@|$PREFIX|g"
 }
 
 pkgconfig_libdir() { printf '%s' "${DEP_PKGCONFIG#:}${HOST_PKGCONFIG:+:$HOST_PKGCONFIG}" | sed 's/^://'; }
 
 recipe_cmake() { # recipe_cmake <name> <srcdir>
-  local name=$1 srcdir=$2 b="$2/ci-build" opts kv depargs shared extra="" system host_targets
+  local name=$1 srcdir=$2 b="$2/ci-build" opts kv depargs shared
   opts=$({ dep_get "$name" '.cmake_options // {} | to_entries[] | "\(.key)=\(.value)"'; dep_target_cmake_options "$name"; } | while IFS= read -r kv; do printf -- '-D%s ' "$(expand_tokens "$kv")"; done)
   if [ "$(dep_get "$name" '.shared // false')" = true ]; then shared=ON; else shared=OFF; fi
-  system=$(target_get '.cmake_system_name // empty')
   depargs=""
   [ -n "$DEP_PREFIX_PATH" ] && depargs="-DCMAKE_PREFIX_PATH=${DEP_PREFIX_PATH//:/;}"
-
-  # protobuf cross builds need a protoc that runs on the build host: build a
-  # native one first, then build only the libraries for the target arch.
-  host_targets=$(dep_get "$name" '(.host_cmake_targets // [])[]')
-  if [ -n "$host_targets" ] && [ -z "$system" ] && is_cross "$ARCH"; then
-    log "$name: building host tools ($(uname -m)) for cross-compilation: $(printf '%s' "$host_targets" | tr '\n' ' ')"
-    env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
-      cmake -S "$srcdir" -B "$srcdir/host-build" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX="$srcdir/host-prefix" \
-      $(toolchain_host_cmake_args) \
-      $(dep_get "$name" '.host_cmake_options // {} | to_entries[] | "-D\(.key)=\(.value)"') >/dev/null
-    for kv in $host_targets; do
-      env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
-        cmake --build "$srcdir/host-build" --target "$kv" -j "$(njobs)"
-    done
-    HOST_BUILD="$srcdir/host-build"
-    extra=$(dep_get "$name" '.cross_cmake_options // {} | to_entries[] | "-D\(.key)=\(.value)"' | while IFS= read -r kv; do printf '%s ' "$(expand_tokens "$kv")"; done)
-  fi
 
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
     PKG_CONFIG_PATH="${DEP_PKGCONFIG#:}" PKG_CONFIG_LIBDIR="$(pkgconfig_libdir)" \
@@ -56,7 +36,7 @@ recipe_cmake() { # recipe_cmake <name> <srcdir>
     $(toolchain_cmake_args) \
     -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF \
     -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF \
-    $depargs $opts $extra
+    $depargs $opts
   env -u CFLAGS -u CXXFLAGS -u LDFLAGS cmake --build "$b" -j "$(njobs)"
   cmake --install "$b"
 }
